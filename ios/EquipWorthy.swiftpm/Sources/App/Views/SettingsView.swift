@@ -15,6 +15,7 @@ struct BackupDocument: FileDocument {
 @MainActor
 struct SettingsView: View {
     @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var refresher: PriceRefresher
     @State private var newName = ""
     @State private var exporting = false
     @State private var importing = false
@@ -86,11 +87,11 @@ struct SettingsView: View {
             Section("Defaults & prices") {
                 Picker("Default condition", selection: setting(\.defaultCondition)) { ForEach(Condition.allCases) { Text($0.rawValue).tag($0) } }
                 Picker("Default binder", selection: setting(\.defaultBinder)) { ForEach(p.binders, id: \.self) { Text($0).tag($0) } }
-                Picker("Auto-refresh prices", selection: setting(\.autoRefreshHours)) {
-                    ForEach([6.0, 12, 24, 48], id: \.self) { Text("Every \(Int($0)) h").tag($0) }
+                Picker("Automatic price updates", selection: setting(\.autoRefreshHours)) {
+                    Text("Once a day").tag(24.0); Text("Twice a day").tag(12.0); Text("Every 6 hours").tag(6.0)
                 }
                 Toggle("Price-alert notifications", isOn: setting(\.notifications))
-                Button("Refresh prices now") { Task { await store.refreshPrices() } }
+                Button("Refresh prices now") { Task { await refresher.refreshAll(force: true) } }
                 if let last = p.lastPriceRefresh.flatMap(parseISO) { LabeledContent("Last refresh", value: last.formatted()) }
             }
 
@@ -105,6 +106,20 @@ struct SettingsView: View {
                 if let offlineStatus { Text(offlineStatus).font(.footnote).foregroundStyle(.secondary) }
             } header: { Text("Offline mode") } footer: {
                 Text("Lets search and scanning find cards at a shop with no signal. Prices still need a connection to update. About a 150 MB download; use Wi-Fi.")
+            }
+
+            Section {
+                Stepper("Alert at ±\(Int(p.settings.spikePct1d))% in a day", value: setting(\.spikePct1d), in: 1...200, step: 1)
+                Stepper("or ±\(Int(p.settings.spikePct7d))% in a week", value: setting(\.spikePct7d), in: 1...500, step: 1)
+                Stepper("Ignore cards under \(p.settings.moverMinPrice.usd)", value: setting(\.moverMinPrice), in: 0...100, step: 0.25)
+                Toggle("Daily market scan", isOn: setting(\.marketScan))
+                if p.settings.marketScan {
+                    Picker("Cards to scan", selection: setting(\.marketUniverse)) {
+                        ForEach([175, 350, 525, 700, 1050], id: \.self) { Text("Top \($0) by EDHREC").tag($0) }
+                    }
+                }
+            } header: { Text("Fast movers & market scan") } footer: {
+                Text("Your own cards raise an alert when they move past these thresholds. The daily market scan watches popular Commander cards for spikes and drops, and finds older cards likely to rise from new-set synergies.")
             }
 
             Section("Storage") {

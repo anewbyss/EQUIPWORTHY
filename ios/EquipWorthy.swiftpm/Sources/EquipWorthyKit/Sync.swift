@@ -62,6 +62,7 @@ public enum SyncMerge {
     public static func forSync(_ p: Profile) -> Profile {
         var q = p
         q.cardCache = [:]
+        q.market = nil
         return q
     }
 
@@ -91,6 +92,7 @@ public enum SyncMerge {
         m.lastPriceRefresh = [local.lastPriceRefresh, remote.lastPriceRefresh].compactMap { $0 }.max()
         m.updatedAt = preferLocal ? local.updatedAt : remote.updatedAt
         m.cardCache = [:]
+        m.market = nil
         return m
     }
 }

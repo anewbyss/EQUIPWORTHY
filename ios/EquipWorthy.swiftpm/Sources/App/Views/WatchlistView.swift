@@ -21,7 +21,8 @@ struct WatchlistView: View {
                     NavigationLink { WatchEditor(watchId: w.id) } label: {
                         let s = p.history(w.cardId, w.finish)
                         let price = p.price(w.cardId, w.finish)
-                        let fc = p.card(w.cardId).flatMap { Forecaster.forecast(card: $0, series: s, currentPrice: price, horizonDays: 30) }
+                        let pick: SynergyPick? = p.market?.synergy.first(where: { $0.cardId == w.cardId })
+                        let fc: Forecast? = p.card(w.cardId).flatMap { card in Forecaster.forecast(card: card, series: s, currentPrice: price, horizonDays: 30, synergy: pick) }
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(w.name).lineLimit(1)

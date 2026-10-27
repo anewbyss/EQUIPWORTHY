@@ -205,3 +205,67 @@ final class SyncTests: XCTestCase {
     }
     #endif
 }
+
+final class MarketTests: XCTestCase {
+    func card(_ id: String, _ name: String, type: String = "Creature — Human", ci: [String] = ["G"], text: String = "", kw: [String] = [], usd: Double = 5, rank: Int? = nil) -> CardSummary {
+        CardSummary(id: id, oracleId: "o" + id, name: name, set: "old", collectorNumber: "1", typeLine: type, colorIdentity: ci,
+                    releasedAt: "2020-01-01", edhrecRank: rank, legalities: ["commander": "legal"], prices: Prices(usd: usd), oracleText: text, keywords: kw)
+    }
+
+    func testPctOver() {
+        let s = [PricePoint("2026-10-20", 10), PricePoint("2026-10-26", 12), PricePoint("2026-10-27", 15)]
+        XCTAssertEqual(Market.pctOver(s, days: 1)!, 25, accuracy: 0.001)
+        XCTAssertEqual(Market.pctOver(s, days: 7)!, 50, accuracy: 0.001)
+        XCTAssertNil(Market.pctOver([PricePoint("2026-10-01", 10), PricePoint("2026-10-27", 20)], days: 7))
+    }
+
+    func testDetectMovers() {
+        let m = Market.detectMovers([
+            MoverInput(cardId: "a", name: "Up", set: "x", finish: .nonfoil, series: [PricePoint("2026-10-26", 10), PricePoint("2026-10-27", 13)], tracked: true),
+            MoverInput(cardId: "b", name: "Down", set: "x", finish: .nonfoil, series: [PricePoint("2026-10-20", 20), PricePoint("2026-10-27", 12)], tracked: false),
+            MoverInput(cardId: "c", name: "Bulk", set: "x", finish: .nonfoil, series: [PricePoint("2026-10-26", 0.1), PricePoint("2026-10-27", 0.3)], tracked: false),
+        ], settings: AppSettings())
+        XCTAssertEqual(m.map(\.name), ["Down", "Up"])
+        XCTAssertEqual(m.map(\.kind), [.crash, .spike])
+    }
+
+    func testSpikeAlertOncePerDay() {
+        var p = Profile(name: "t")
+        p.collection.append(CollectionItem(cardId: "a", name: "Up", set: "x", collectorNumber: "1"))
+        p.priceHistory["a:nonfoil"] = [PricePoint("2026-10-26", 10)]
+        let c = card("a", "Up", usd: 13)
+        let t = ISO8601DateFormatter().date(from: "2026-10-27T12:00:00Z")!
+        let n1 = Snapshot.apply(p, fresh: [c], now: t)
+        XCTAssertEqual(n1.alerts.filter { $0.kind == .spike }.count, 1)
+        XCTAssertTrue(n1.alerts[0].message.contains("+30.0% today"))
+        XCTAssertEqual(Snapshot.apply(n1, fresh: [c], now: t.addingTimeInterval(3600)).alerts.filter { $0.kind == .spike }.count, 1)
+    }
+
+    func testSynergyFindsNewCommanderFit() {
+        let lord = card("n1", "New Elf Lord", type: "Legendary Creature — Elf", ci: ["G", "B"],
+                        text: "Other Elves you control get +1/+1. Whenever you put a +1/+1 counter on a creature, proliferate.", kw: ["Proliferate"])
+        let elf = card("c1", "Old Elf", type: "Creature — Elf Warrior", text: "Put a +1/+1 counter on target creature.", rank: 500)
+        let bolt = card("c3", "Lightning Bolt", type: "Instant", ci: ["R"], text: "Lightning Bolt deals 3 damage to any target.")
+        let picks = Market.scoreSynergy([elf, bolt], newCards: [lord], minScore: 0.5)
+        XCTAssertEqual(picks.first?.name, "Old Elf")
+        XCTAssertTrue(picks[0].reasons.contains { $0.hasPrefix("Fits new commander New Elf Lord") })
+        XCTAssertNil(picks.first { $0.name == "Lightning Bolt" })
+        XCTAssertEqual(Market.plural("Elf"), "Elves")
+        XCTAssertEqual(Market.subtypes("Legendary Creature — Elf Druid"), ["Elf", "Druid"])
+    }
+
+    func testSynergyForecastFactor() {
+        let f = Forecaster.forecast(card: card("c1", "Old Elf"), series: [], currentPrice: 5, synergy:
+            SynergyPick(cardId: "c1", name: "Old Elf", set: "old", price: 5, score: 5, reasons: ["Elf synergy"], sources: ["Lord"]))!
+        XCTAssertEqual(f.factors.first { $0.label == "Incoming synergy" }?.impactPct, 4)
+    }
+
+    func testMarketScanTwoDays() {
+        let p = Profile(name: "t")
+        let d1 = Market.applyScan(p, universe: [card("u1", "Staple", usd: 10)], newCards: [], newSets: [], now: ISO8601DateFormatter().date(from: "2026-10-26T12:00:00Z")!)
+        let d2 = Market.applyScan(d1, universe: [card("u1", "Staple", usd: 14)], newCards: [], newSets: [], now: ISO8601DateFormatter().date(from: "2026-10-27T12:00:00Z")!)
+        XCTAssertEqual(d2.market?.history["u1"], [PricePoint("2026-10-26", 10), PricePoint("2026-10-27", 14)])
+        XCTAssertEqual(d2.market?.movers.first?.kind, .spike)
+        XCTAssertNil(SyncMerge.forSync(d2).market)
+    }
+}

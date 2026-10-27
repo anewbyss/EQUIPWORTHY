@@ -5,7 +5,7 @@ import EquipWorthyKit
 
 /// Every screen in the app, used by the launch page.
 enum AppScreen: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, search, collection, batch, scan, decks, watchlist, trade, life, sets, settings
+    case dashboard, search, collection, batch, scan, decks, watchlist, market, trade, life, sets, settings
     var id: String { rawValue }
 
     var title: String {
@@ -17,6 +17,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         case .scan: return "Scan"
         case .decks: return "Decks"
         case .watchlist: return "Watchlist"
+        case .market: return "Market Watch"
         case .trade: return "Trade Scale"
         case .life: return "Life & Dice"
         case .sets: return "Sets & Spoilers"
@@ -33,6 +34,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         case .scan: return "Identify cards with your camera"
         case .decks: return "Build, check legality, see what to buy"
         case .watchlist: return "Price targets and alerts"
+        case .market: return "Fast movers and synergy picks"
         case .trade: return "Balance a trade, store trade-in"
         case .life: return "Life, commander damage, dice"
         case .sets: return "Upcoming sets and every release"
@@ -49,6 +51,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         case .scan: return "camera.viewfinder"
         case .decks: return "rectangle.stack"
         case .watchlist: return "bell"
+        case .market: return "chart.line.uptrend.xyaxis.circle"
         case .trade: return "scalemass"
         case .life: return "heart.circle"
         case .sets: return "sparkles.rectangle.stack"
@@ -60,7 +63,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard, .batch, .watchlist, .sets: return Theme.sky
         case .search, .scan, .trade, .settings: return Theme.violet
-        case .collection, .decks, .life: return Theme.gold
+        case .collection, .decks, .life, .market: return Theme.gold
         }
     }
 
@@ -73,6 +76,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         case .scan: ScannerView()
         case .decks: DecksView()
         case .watchlist: WatchlistView()
+        case .market: MarketView()
         case .trade: TradeView()
         case .life: LifeTrackerView()
         case .sets: SetsView()
@@ -99,6 +103,10 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
             return p.watchlist.isEmpty ? nil : "\(p.watchlist.count) watched"
         case .life:
             return p.game.map { "Turn \($0.turn) in progress" }
+        case .market:
+            guard let m = p.market else { return nil }
+            if !m.movers.isEmpty { return "\(m.movers.count) fast mover\(m.movers.count == 1 ? "" : "s")" }
+            return m.synergy.isEmpty ? nil : "\(m.synergy.count) synergy picks"
         default:
             return nil
         }

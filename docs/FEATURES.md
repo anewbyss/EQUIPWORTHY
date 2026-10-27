@@ -23,6 +23,14 @@
 - ✅ Sets & Spoilers browser: upcoming sets with cards previewed so far, and every released set sortable by price
 - ✅ Full Scryfall search syntax with presets
 
+## 1b. Price updates, fast movers and synergy watch ([MARKET.md](MARKET.md))
+- ✅ Prices update automatically once a day; the ↻ refresh button next to Save on every screen updates them on demand
+- ✅ Fast-mover alerts on your own cards: spikes and crashes past your thresholds (default ±15%/day or ±25%/week, ignoring cards under $1)
+- ✅ Daily market scan of the most popular Commander cards (175–1,050, adjustable) for market-wide spikes and drops
+- ✅ Synergy watch: reads every new card in recent and upcoming sets and ranks older cards likely to rise, especially ones that fit a new commander, with reasons
+- ✅ Synergy picks add an "Incoming synergy" factor to forecasts
+- ✅ Market Watch screen and launch tile; one-tap Watch on any mover or pick
+
 ## 2. Price forecasting
 - ✅ 7-day and 30-day forecast: direction (up / flat / down), expected % move with a target price, and an 80% range
 - ✅ Confidence level (Low / Medium / High) based on how much history exists and how volatile the price is

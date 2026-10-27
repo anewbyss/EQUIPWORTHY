@@ -9,6 +9,7 @@ import EquipWorthyKit
 struct EquipWorthyApp: App {
     @StateObject private var store = ProfileStore()
     @StateObject private var sync = SyncManager()
+    @StateObject private var refresher = PriceRefresher()
     @Environment(\.scenePhase) private var phase
 
     init() {
@@ -20,10 +21,11 @@ struct EquipWorthyApp: App {
             RootView()
                 .environmentObject(store)
                 .environmentObject(sync)
+                .environmentObject(refresher)
                 .tint(Theme.accent)
                 .task {
                     sync.attach(store)
-                    if Snapshot.needsRefresh(store.profile) { await store.refreshPrices() }
+                    refresher.attach(store)
                 }
         }
         .onChange(of: phase) { _, newPhase in
@@ -33,7 +35,7 @@ struct EquipWorthyApp: App {
                 BackgroundRefresh.schedule()
             case .active:
                 sync.appBecameActive()
-                Task { if Snapshot.needsRefresh(store.profile) { await store.refreshPrices() } }
+                refresher.checkDue()
             @unknown default:
                 break
             }
@@ -112,10 +114,10 @@ enum Notifier {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
-    static func post(_ alerts: [PriceAlert]) {
+    static func post(_ alerts: [PriceAlert], title: String = "EquipWorthy price alert") {
         for a in alerts.prefix(5) {
             let content = UNMutableNotificationContent()
-            content.title = "EquipWorthy price alert"
+            content.title = title
             content.body = a.message
             content.sound = .default
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: a.id, content: content, trigger: nil))

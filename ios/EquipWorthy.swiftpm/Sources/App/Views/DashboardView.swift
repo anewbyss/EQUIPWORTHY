@@ -6,6 +6,7 @@ import EquipWorthyKit
 @MainActor
 struct DashboardView: View {
     @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var refresher: PriceRefresher
     @State private var picked: CardSummary?
 
     struct Mover: Identifiable { let id: String; let cardId: String; let name: String; let price: Double; let d7: Double?; let d30: Double? }
@@ -70,15 +71,7 @@ struct DashboardView: View {
         .navigationTitle("EquipWorthy")
         .navigationDestination(for: String.self) { CardDetailView(cardId: $0) }
         .navigationDestination(item: $picked) { CardDetailView(cardId: $0.id) }
-        .refreshable { await store.refreshPrices() }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { Task { await store.refreshPrices() } } label: {
-                    if store.refreshing != nil { ProgressView() } else { Image(systemName: "arrow.clockwise") }
-                }
-                .accessibilityLabel("Refresh prices")
-            }
-        }
+        .refreshable { await refresher.refreshAll(force: true) }
         .saveToolbar()
         .overlay(alignment: .bottom) {
             if let e = store.lastError {

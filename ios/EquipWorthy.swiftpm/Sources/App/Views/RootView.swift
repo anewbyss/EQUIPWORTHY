@@ -37,6 +37,7 @@ struct MoreView: View {
                 Label("Watchlist & Alerts", systemImage: "bell")
                     .badge(store.profile.alerts.filter { !$0.read }.count)
             }
+            NavigationLink { MarketView() } label: { Label("Market Watch", systemImage: "chart.line.uptrend.xyaxis.circle") }
             NavigationLink { TradeView() } label: { Label("Trade Scale", systemImage: "scalemass") }
             NavigationLink { SetsView() } label: { Label("Sets & Spoilers", systemImage: "sparkles.rectangle.stack") }
             NavigationLink { SettingsView() } label: { Label("Settings & Profiles", systemImage: "gearshape") }

@@ -49,6 +49,16 @@ struct CardDetailView: View {
         edhrecLoaded = true
     }
 
+    /// This card (or another printing of it) on the Market Watch synergy list.
+    private func synergyPick(for card: CardSummary) -> SynergyPick? {
+        guard let market = store.profile.market else { return nil }
+        for pick in market.synergy {
+            if pick.cardId == card.id { return pick }
+            if let o = card.oracleId, market.cards[pick.cardId]?.oracleId == o { return pick }
+        }
+        return nil
+    }
+
     private func flash(_ s: String) {
         withAnimation { toast = s }
         Task { try? await Task.sleep(nanoseconds: 2_000_000_000); withAnimation { toast = nil } }
@@ -84,7 +94,7 @@ struct CardDetailView: View {
                 }
             }
 
-            if let fc = Forecaster.forecast(card: card, series: series, currentPrice: price, horizonDays: horizon) {
+            if let fc = Forecaster.forecast(card: card, series: series, currentPrice: price, horizonDays: horizon, synergy: synergyPick(for: card)) {
                 Section("Forecast") { ForecastView(fc: fc, horizon: $horizon) }
             }
 
