@@ -11,6 +11,7 @@ An all-purpose Magic: The Gathering app for tracking card prices, forecasting pr
 | **Scanning** | iOS: live camera with card-edge detection and Vision text recognition. Web: camera or photo with Tesseract.js |
 | **Decks** | Builder, Moxfield import, legality, mana curve, owned vs. needed, shopping list, sample hands, draw odds |
 | **Trade Scale** | Put cards on each side and watch the scale tip, with suggestions from your trade binder to balance it |
+| **Life & Dice** | Life totals, commander damage, poison and other counters, turn tracking, game log, and dice (d4–d100), coin flips and random player picks |
 | **Store buylist** | Cash and store-credit sliders (% of market), adjusted for condition, shown across the app |
 | **Hub** | TCGplayer, EDHREC, Scryfall and Moxfield links and data on every card, plus a sets and spoilers browser |
 

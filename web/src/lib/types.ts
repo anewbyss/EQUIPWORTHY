@@ -185,6 +185,44 @@ export interface Profile {
   lastPriceRefresh?: string;
   /** Batch-entry review queue, persisted so nothing is lost on reload. */
   pendingBatch?: PendingRow[];
+  /** Current life-tracker game, saved so a game survives closing the app. */
+  game?: GameState;
+}
+
+export interface GamePlayer {
+  id: string;
+  name: string;
+  color: string; // one of PLAYER_COLORS
+  life: number;
+  poison: number;
+  energy: number;
+  experience: number;
+  commanderTax: number;
+  /** Commander damage received, keyed by the attacking player's id. */
+  commanderDamage: Record<string, number>;
+}
+
+export interface GameLogEntry {
+  at: string;
+  text: string;
+}
+
+export interface DiceRoll {
+  at: string;
+  label: string; // e.g. "2d6+1", "Coin", "First player"
+  results: number[];
+  total: number;
+  text?: string;
+}
+
+export interface GameState {
+  startingLife: number;
+  players: GamePlayer[];
+  turn: number;
+  activePlayer: number; // index into players
+  log: GameLogEntry[];
+  rolls: DiceRoll[];
+  startedAt: string;
 }
 
 export interface PendingRow {

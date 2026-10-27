@@ -27,7 +27,14 @@ Source of truth: `web/src/lib/types.ts` and `ios/EquipWorthyKit/Sources/EquipWor
   "forecastLog": [{ "cardId", "finish", "madeOn", "horizonDays", "startPrice", "expectedPct", "resolvedPct?" }],
   "cardCache": { "<scryfallId>": CardSummary },
   "lastPriceRefresh": "ISO",
-  "pendingBatch": [PendingRow]   // batch-entry review queue
+  "pendingBatch": [PendingRow],  // batch-entry review queue
+  "game": {                      // current life-tracker game
+    "startingLife": 40, "turn": 1, "activePlayer": 0, "startedAt": "ISO",
+    "players": [{ "id", "name", "color", "life", "poison", "energy", "experience", "commanderTax",
+                  "commanderDamage": { "<attackerPlayerId>": 7 } }],
+    "log": [{ "at": "ISO", "text": "Ann −3 (40 → 37)" }],
+    "rolls": [{ "at": "ISO", "label": "2d6+1", "results": [3, 5], "total": 9, "text?": "Heads" }]
+  }
 }
 ```
 

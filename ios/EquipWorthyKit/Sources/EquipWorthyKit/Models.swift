@@ -328,6 +328,8 @@ public struct Profile: Codable, Hashable, Identifiable, Sendable {
     public var cardCache: [String: CardSummary]
     public var lastPriceRefresh: String?
     public var pendingBatch: [PendingRow]?
+    /// Current life-tracker game, saved so a game survives closing the app.
+    public var game: GameState?
 
     public init(name: String) {
         schemaVersion = EquipWorthyKit.schemaVersion
@@ -363,6 +365,7 @@ public struct Profile: Codable, Hashable, Identifiable, Sendable {
         cardCache = try c.decodeIfPresent([String: CardSummary].self, forKey: .cardCache) ?? [:]
         lastPriceRefresh = try c.decodeIfPresent(String.self, forKey: .lastPriceRefresh)
         pendingBatch = try c.decodeIfPresent([PendingRow].self, forKey: .pendingBatch)
+        game = try c.decodeIfPresent(GameState.self, forKey: .game)
     }
 
     public func card(_ id: String) -> CardSummary? { cardCache[id] }

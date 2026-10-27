@@ -68,15 +68,30 @@
 - ✅ Store trade-in mode values your side at the store-credit %
 - ✅ Saved trades, and a reprice button
 
-## 8. Store buylist estimate
+## 8. Life & Dice (game tracker)
+- ✅ 1–6 players, starting life 20 / 25 / 30 / 40 or a custom number, player names
+- ✅ Big life totals with −5 / −1 / +1 / +5 buttons. Taps in quick succession are merged into one log entry ("Ann −3 (40 → 37)")
+- ✅ Commander damage per opponent: subtracts the same amount of life and flags 21+ as lethal
+- ✅ Poison (lethal at 10), energy, experience and commander tax counters
+- ✅ Automatic elimination (life, poison or commander damage), with turn order skipping eliminated players
+- ✅ Turn counter showing the active player, Next turn, Rematch (same players) and New game
+- ✅ Game log of every life change, damage, counter and turn
+- ✅ Dice: d4, d6, d8, d10, d12, d20, d100, multiple dice plus a modifier, coin flip, random player, roll history
+- ✅ The game is saved with your profile, so it survives closing the app. iOS keeps the screen awake during a game
+
+## 9. Store buylist estimate
 - ✅ Cash % and store credit % sliders (defaults 50% / 65% of market)
 - ✅ Condition multipliers (NM 100%, LP 90%, MP 75%, HP 55%, DMG 35%; editable)
 - ✅ Shown on every card page, collection totals, the dashboard and the trade scale
 
-## 9. Profiles, storage and saving
+## 10. Profiles, storage and saving
 - ✅ Multiple local profiles per device; create, rename, switch and delete
 - ✅ Everything stays on the device: IndexedDB on web, JSON files in Application Support on iOS
 - ✅ Frequent autosave: 1.5 s after any change, every N seconds (configurable) while there are unsaved changes, and when the app or tab is backgrounded or closed
 - ✅ A manual **Save** button on every page or screen with live status ("Unsaved changes" / "Saved 5s ago"), plus Ctrl/Cmd+S on web
 - ✅ Export and import JSON backups in one format that works on both platforms
 - ✅ iOS: optional offline card database (Scryfall bulk data) so search and scanning work with no signal
+
+## 11. Look and feel
+- Color theme: sky blue, violet and mustard gold, with light and dark modes on web (following the system setting) and iOS
+- Each player in the life tracker gets their own color (sky, violet, gold, teal, rose, slate)

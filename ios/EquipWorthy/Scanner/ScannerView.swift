@@ -44,7 +44,7 @@ struct ScannerView: View {
                 } else {
                     CameraPreview(session: scanner.session).ignoresSafeArea(edges: .horizontal)
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(scanner.cardFound ? Theme.up : Theme.accent, lineWidth: 3)
+                        .stroke(scanner.cardFound ? Theme.sky : Theme.gold, lineWidth: 3)
                         .aspectRatio(63.0 / 88.0, contentMode: .fit)
                         .padding(36)
                         .allowsHitTesting(false)

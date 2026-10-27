@@ -12,6 +12,7 @@ import DecksPage from "./pages/Decks";
 import DeckPage from "./pages/DeckPage";
 import WatchPage from "./pages/Watchlist";
 import TradePage from "./pages/Trade";
+import LifeTrackerPage from "./pages/LifeTracker";
 import SetsPage from "./pages/Sets";
 import SettingsPage from "./pages/Settings";
 
@@ -24,6 +25,7 @@ const NAV: [string, string][] = [
   ["/decks", "Decks"],
   ["/watch", "Watchlist"],
   ["/trade", "Trade Scale"],
+  ["/life", "Life & Dice"],
   ["/sets", "Sets & Spoilers"],
   ["/settings", "Settings"],
 ];
@@ -71,6 +73,7 @@ export default function App() {
           <Route path="/deck/:id" element={<DeckPage />} />
           <Route path="/watch" element={<WatchPage />} />
           <Route path="/trade" element={<TradePage />} />
+          <Route path="/life" element={<LifeTrackerPage />} />
           <Route path="/sets" element={<SetsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>

@@ -31,7 +31,7 @@ struct DashboardView: View {
         let costed = p.collection.filter { $0.purchasePrice != nil }
         let cost = costed.reduce(0) { $0 + ($1.purchasePrice ?? 0) * Double($1.quantity) }
         let costedValue = costed.reduce(0) { $0 + (p.price($1.cardId, $1.finish) ?? 0) * Double($1.quantity) }
-        let cash = p.collection.reduce(0) { $0 + Buylist.value(market: p.price($1.cardId, $1.finish) ?? 0, pct: p.settings.buylistCashPct, condition: $1.condition, settings: p.settings) * Double($1.quantity) }
+        let cash = cashValue(p)
         let acc = Forecaster.accuracy(p.forecastLog)
         let m = movers
 
@@ -84,6 +84,15 @@ struct DashboardView: View {
                     .onTapGesture { store.lastError = nil }
             }
         }
+    }
+
+    private func cashValue(_ p: Profile) -> Double {
+        var total = 0.0
+        for c in p.collection {
+            let market: Double = p.price(c.cardId, c.finish) ?? 0
+            total += Buylist.value(market: market, pct: p.settings.buylistCashPct, condition: c.condition, settings: p.settings) * Double(c.quantity)
+        }
+        return total
     }
 
     @ViewBuilder func moverRows(_ rows: [Mover]) -> some View {

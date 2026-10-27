@@ -182,7 +182,7 @@ struct DeckDetailView: View {
                 let cards = deck.cards.filter { $0.board == b }
                 if !cards.isEmpty {
                     Section("\(b.label) (\(cards.reduce(0) { $0 + $1.quantity }))") {
-                        ForEach(cards.sorted { (p.card($0.cardId)?.cmc ?? 0, $0.name) < (p.card($1.cardId)?.cmc ?? 0, $1.name) }, id: \.cardId) { c in
+                        ForEach(sortedByCost(cards, p), id: \.cardId) { c in
                             HStack {
                                 Stepper("\(c.quantity)", value: Binding(get: { c.quantity }, set: { v in setDeck { d in
                                     if let i = d.cards.firstIndex(where: { $0.cardId == c.cardId && $0.board == c.board }) {
@@ -269,6 +269,14 @@ struct DeckDetailView: View {
         }
         .navigationTitle(deck.name)
         .saveToolbar()
+    }
+
+    private func sortedByCost(_ cards: [DeckCard], _ p: Profile) -> [DeckCard] {
+        cards.sorted { a, b in
+            let ca: Double = p.card(a.cardId)?.cmc ?? 0
+            let cb: Double = p.card(b.cardId)?.cmc ?? 0
+            return ca != cb ? ca < cb : a.name < b.name
+        }
     }
 
     private func draw(_ deck: Deck, _ n: Int) {

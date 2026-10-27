@@ -116,7 +116,7 @@ struct PriceChart: View {
                         LineMark(x: .value("Date", p.date), y: .value(label, p.price))
                             .interpolationMethod(.monotone)
                             .lineStyle(StrokeStyle(lineWidth: 2))
-                            .foregroundStyle(Theme.accent)
+                            .foregroundStyle(Theme.sky)
                     }
                     if let s = selected, let near = points.min(by: { abs($0.date.timeIntervalSince(s)) < abs($1.date.timeIntervalSince(s)) }) {
                         RuleMark(x: .value("Date", near.date))
@@ -197,7 +197,7 @@ struct StatTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased()).font(.caption2).foregroundStyle(.secondary)
-            Text(value).font(.title3.bold()).monospacedDigit()
+            Text(value).font(.title3.bold()).monospacedDigit().foregroundStyle(Theme.gradient)
             if let sub { Text(sub).font(.caption).foregroundStyle(.secondary) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

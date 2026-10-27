@@ -35,10 +35,26 @@ struct EquipWorthyApp: App {
     }
 }
 
+/// Sky blue, violet and mustard gold.
 enum Theme {
-    static let accent = Color(red: 0.80, green: 0.60, blue: 0.18)
+    static let sky = Color(red: 0.31, green: 0.70, blue: 0.96)     // #4FB3F6
+    static let violet = Color(red: 0.42, green: 0.29, blue: 0.82)  // #6A4BD1
+    static let gold = Color(red: 0.85, green: 0.65, blue: 0.13)    // #D9A520
+    static let accent = violet
     static let up = Color.green
     static let down = Color.red
+    static let gradient = LinearGradient(colors: [sky, violet], startPoint: .topLeading, endPoint: .bottomTrailing)
+
+    static func player(_ name: String) -> Color {
+        switch name {
+        case "sky": return sky
+        case "violet": return Color(red: 0.54, green: 0.42, blue: 0.94)
+        case "gold": return gold
+        case "teal": return Color(red: 0.17, green: 0.70, blue: 0.64)
+        case "rose": return Color(red: 0.88, green: 0.38, blue: 0.49)
+        default: return Color(red: 0.48, green: 0.53, blue: 0.66)
+        }
+    }
 }
 
 /// Daily background price refresh + local notifications for watchlist alerts.

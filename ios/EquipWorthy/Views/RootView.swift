@@ -13,8 +13,8 @@ struct RootView: View {
                 .tabItem { Label("Collection", systemImage: "square.stack.3d.up") }
             NavigationStack { ScannerView() }
                 .tabItem { Label("Scan", systemImage: "camera.viewfinder") }
-            NavigationStack { DecksView() }
-                .tabItem { Label("Decks", systemImage: "rectangle.stack") }
+            NavigationStack { LifeTrackerView() }
+                .tabItem { Label("Life & Dice", systemImage: "heart.circle") }
             NavigationStack { MoreView() }
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
                 .badge(store.profile.alerts.filter { !$0.read }.count)
@@ -27,6 +27,7 @@ struct MoreView: View {
     @EnvironmentObject var store: ProfileStore
     var body: some View {
         List {
+            NavigationLink { DecksView() } label: { Label("Decks", systemImage: "rectangle.stack") }
             NavigationLink { SearchView() } label: { Label("Search", systemImage: "magnifyingglass") }
             NavigationLink { BatchView() } label: { Label("Batch Entry", systemImage: "list.bullet.rectangle") }
             NavigationLink { WatchlistView() } label: {

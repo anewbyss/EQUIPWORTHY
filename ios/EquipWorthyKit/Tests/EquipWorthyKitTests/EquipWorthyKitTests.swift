@@ -125,3 +125,48 @@ final class ScanTests: XCTestCase {
         XCTAssertGreaterThan(ScanParser.similarity("Sol Rinq", "Sol Ring"), 0.6)
     }
 }
+
+final class GameTests: XCTestCase {
+    func testMergedLifeLog() {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        var g = Game.new(players: 2, startingLife: 20)
+        let id = g.players[0].id
+        for i in 0..<3 { g = Game.changeLife(g, id: id, delta: -1, now: t0.addingTimeInterval(Double(i) * 0.5)) }
+        XCTAssertEqual(g.players[0].life, 17)
+        XCTAssertEqual(g.log.map(\.text), ["Player 1 −3 (20 → 17)"])
+    }
+
+    func testCommanderDamageAndPoison() {
+        var g = Game.new(players: 2, startingLife: 40)
+        let a = g.players[0].id, b = g.players[1].id
+        g = Game.commanderDamage(g, target: a, from: b, delta: 21)
+        XCTAssertEqual(g.players[0].life, 19)
+        XCTAssertEqual(Game.eliminated(g.players[0]), "commander damage")
+        g = Game.change(g, id: b, counter: .poison, delta: -1)
+        XCTAssertEqual(g.players[1].poison, 0)
+    }
+
+    func testTurnsSkipEliminated() {
+        var g = Game.new(players: 3, startingLife: 20)
+        g = Game.changeLife(g, id: g.players[1].id, delta: -20)
+        g = Game.nextTurn(g)
+        XCTAssertEqual(g.activePlayer, 2)
+        g = Game.nextTurn(g)
+        XCTAssertEqual(g.activePlayer, 0)
+        XCTAssertEqual(g.turn, 2)
+    }
+
+    func testDice() {
+        var values = [0.0, 0.999].makeIterator()
+        let r = Game.roll(count: 2, sides: 6, modifier: 1, rng: { values.next() ?? 0 })
+        XCTAssertEqual(r.results, [1, 6]); XCTAssertEqual(r.total, 8); XCTAssertEqual(r.label, "2d6+1")
+        XCTAssertEqual(Game.flipCoin(rng: { 0.1 }).text, "Heads")
+    }
+
+    func testGameRoundTrips() throws {
+        var p = Profile(name: "t")
+        p.game = Game.new(players: 4, startingLife: 40)
+        let back = try JSONDecoder().decode(Profile.self, from: JSONEncoder().encode(p))
+        XCTAssertEqual(back.game, p.game)
+    }
+}

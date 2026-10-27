@@ -61,8 +61,8 @@ private struct CardsList: View {
         let p = store.profile
         let shown = rows
         let total = shown.reduce(0) { $0 + price($1) * Double($1.quantity) }
-        let cash = shown.reduce(0) { $0 + Buylist.value(market: price($1), pct: p.settings.buylistCashPct, condition: $1.condition, settings: p.settings) * Double($1.quantity) }
-        let credit = shown.reduce(0) { $0 + Buylist.value(market: price($1), pct: p.settings.buylistCreditPct, condition: $1.condition, settings: p.settings) * Double($1.quantity) }
+        let cash = storeValue(shown, pct: p.settings.buylistCashPct)
+        let credit = storeValue(shown, pct: p.settings.buylistCreditPct)
 
         List(selection: $selection) {
             Section {
@@ -146,6 +146,13 @@ private struct CardsList: View {
             }
         }
         .sheet(item: $export) { f in ExportSheet(file: f) }
+    }
+
+    private func storeValue(_ items: [CollectionItem], pct: Double) -> Double {
+        let settings = store.profile.settings
+        var total = 0.0
+        for c in items { total += Buylist.value(market: price(c), pct: pct, condition: c.condition, settings: settings) * Double(c.quantity) }
+        return total
     }
 
     private func bulk(_ change: @escaping (inout CollectionItem) -> Void) {

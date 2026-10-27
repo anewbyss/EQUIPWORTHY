@@ -37,7 +37,7 @@ export function Scale({ left, right }: { left: number; right: number }) {
         <rect x={230} y={290} width={100} height={14} rx={7} className="base" />
         <line x1={280} y1={90} x2={280} y2={292} className="post" />
         <line x1={lx} y1={ly} x2={rx} y2={ry} className="beam" />
-        <circle cx={280} cy={90} r={10} className="pan" />
+        <circle cx={280} cy={90} r={10} className="pivot" />
         {pan(lx, ly, left, "You give")}
         {pan(rx, ry, right, "You get")}
       </svg>
