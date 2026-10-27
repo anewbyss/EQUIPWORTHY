@@ -73,7 +73,7 @@ export default function DeckPage() {
 
       <div className="stats">
         <Stat label="Deck value" value={usd(deckValue(deck, p))} sub="non-foil market" />
-        <Stat label="Cost to finish" value={missing.length ? usd(missingCost) : "—"} sub={missing.length ? `${missing.reduce((a, c) => a + c.missing, 0)} cards you don't own` : "You own every card"} />
+        <Stat label="Cost to finish" value={missing.length ? usd(missingCost) : "—"} sub={missing.length ? `${missing.reduce((a, c) => a + c.missing, 0)} card${missing.reduce((a, c) => a + c.missing, 0) === 1 ? "" : "s"} you don't own` : "You own every card"} />
         <Stat label="Legality" value={issues.length ? <span className="down">{issues.length} issue{issues.length > 1 ? "s" : ""}</span> : <span className="up">Legal</span>} sub={deck.format} />
       </div>
 
