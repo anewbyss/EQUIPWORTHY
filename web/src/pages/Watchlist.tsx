@@ -36,7 +36,7 @@ export default function WatchPage() {
                 const card = p.cardCache[w.cardId];
                 const s = p.priceHistory[historyKey(w.cardId, w.finish)];
                 const price = priceFor(card, w.finish);
-                const f = card ? forecast(card, s ?? [], price, 30) : null;
+                const f = card ? forecast(card, s ?? [], price, 30, new Date(), p.market?.synergy.find((x) => x.cardId === w.cardId)) : null;
                 return (
                   <tr key={w.id}>
                     <td><Link to={`/card/${w.cardId}`}>{w.name}</Link> <span className="muted small">{card?.set.toUpperCase()}</span></td>

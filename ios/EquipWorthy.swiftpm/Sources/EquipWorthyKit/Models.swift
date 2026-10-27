@@ -70,6 +70,7 @@ public struct CardSummary: Codable, Hashable, Identifiable, Sendable {
     public var scryfallUrl: String?
     public var oracleText: String?
     public var printsCount: Int?
+    public var keywords: [String]?
     public var fetchedAt: String
 
     public init(id: String, oracleId: String? = nil, name: String, set: String, setName: String = "", collectorNumber: String,
@@ -78,14 +79,14 @@ public struct CardSummary: Codable, Hashable, Identifiable, Sendable {
                 releasedAt: String = "2000-01-01", reserved: Bool = false, reprint: Bool = false, edhrecRank: Int? = nil,
                 legalities: [String: String] = [:], prices: Prices = Prices(), finishes: [Finish] = [.nonfoil],
                 tcgplayerUrl: String? = nil, edhrecUrl: String? = nil, scryfallUrl: String? = nil, oracleText: String? = nil,
-                printsCount: Int? = nil, fetchedAt: String = "") {
+                printsCount: Int? = nil, keywords: [String]? = nil, fetchedAt: String = "") {
         self.id = id; self.oracleId = oracleId; self.name = name; self.set = set; self.setName = setName
         self.collectorNumber = collectorNumber; self.rarity = rarity; self.typeLine = typeLine; self.manaCost = manaCost
         self.cmc = cmc; self.colors = colors; self.colorIdentity = colorIdentity; self.image = image; self.imageSmall = imageSmall
         self.releasedAt = releasedAt; self.reserved = reserved; self.reprint = reprint; self.edhrecRank = edhrecRank
         self.legalities = legalities; self.prices = prices; self.finishes = finishes; self.tcgplayerUrl = tcgplayerUrl
         self.edhrecUrl = edhrecUrl; self.scryfallUrl = scryfallUrl; self.oracleText = oracleText
-        self.printsCount = printsCount; self.fetchedAt = fetchedAt
+        self.printsCount = printsCount; self.keywords = keywords; self.fetchedAt = fetchedAt
     }
 
     public func price(_ finish: Finish) -> Double? {
@@ -178,7 +179,7 @@ public struct WatchItem: Codable, Hashable, Identifiable, Sendable {
 }
 
 public struct PriceAlert: Codable, Hashable, Identifiable, Sendable {
-    public enum Kind: String, Codable, Sendable { case below, above, move }
+    public enum Kind: String, Codable, Sendable { case below, above, move, spike, crash }
     public var id: String
     public var cardId: String
     public var name: String
@@ -250,8 +251,16 @@ public struct AppSettings: Codable, Hashable, Sendable {
     public var defaultCondition: Condition = .NM
     public var defaultBinder: String = "Main"
     public var conditionMultipliers: [String: Double] = ["NM": 1, "LP": 0.9, "MP": 0.75, "HP": 0.55, "DMG": 0.35]
-    public var autoRefreshHours: Double = 12
+    public var autoRefreshHours: Double = 24
     public var notifications: Bool = true
+    /// Fast-mover detection: % move in 1 day / 7 days that counts as a spike or crash.
+    public var spikePct1d: Double = 15
+    public var spikePct7d: Double = 25
+    /// Ignore moves on cards cheaper than this (bulk noise).
+    public var moverMinPrice: Double = 1
+    /// Daily scan of popular Commander cards for market-wide movers and synergy picks.
+    public var marketScan: Bool = true
+    public var marketUniverse: Int = 525
 
     public init() {}
 
@@ -266,6 +275,11 @@ public struct AppSettings: Codable, Hashable, Sendable {
         conditionMultipliers = try c.decodeIfPresent([String: Double].self, forKey: .conditionMultipliers) ?? d.conditionMultipliers
         autoRefreshHours = try c.decodeIfPresent(Double.self, forKey: .autoRefreshHours) ?? d.autoRefreshHours
         notifications = try c.decodeIfPresent(Bool.self, forKey: .notifications) ?? d.notifications
+        spikePct1d = try c.decodeIfPresent(Double.self, forKey: .spikePct1d) ?? d.spikePct1d
+        spikePct7d = try c.decodeIfPresent(Double.self, forKey: .spikePct7d) ?? d.spikePct7d
+        moverMinPrice = try c.decodeIfPresent(Double.self, forKey: .moverMinPrice) ?? d.moverMinPrice
+        marketScan = try c.decodeIfPresent(Bool.self, forKey: .marketScan) ?? d.marketScan
+        marketUniverse = try c.decodeIfPresent(Int.self, forKey: .marketUniverse) ?? d.marketUniverse
     }
 
     public func multiplier(_ c: Condition) -> Double { conditionMultipliers[c.rawValue] ?? 1 }
@@ -330,6 +344,8 @@ public struct Profile: Codable, Hashable, Identifiable, Sendable {
     public var pendingBatch: [PendingRow]?
     /// Current life-tracker game, saved so a game survives closing the app.
     public var game: GameState?
+    /// Market-wide price watch and synergy picks. Rebuilt on each device, not synced.
+    public var market: MarketData?
 
     public init(name: String) {
         schemaVersion = currentSchemaVersion
@@ -366,6 +382,7 @@ public struct Profile: Codable, Hashable, Identifiable, Sendable {
         lastPriceRefresh = try c.decodeIfPresent(String.self, forKey: .lastPriceRefresh)
         pendingBatch = try c.decodeIfPresent([PendingRow].self, forKey: .pendingBatch)
         game = try c.decodeIfPresent(GameState.self, forKey: .game)
+        market = try? c.decodeIfPresent(MarketData.self, forKey: .market)
     }
 
     public func card(_ id: String) -> CardSummary? { cardCache[id] }

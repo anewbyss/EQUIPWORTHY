@@ -65,6 +65,22 @@ public enum Snapshot {
                 }
             }
         }
+        // Fast movers among your own cards (one alert per card per direction per day)
+        var moverInputs: [MoverInput] = []
+        for id in trackedIds(p) {
+            guard let card = next.card(id) else { continue }
+            for f in card.finishes {
+                guard let series = next.priceHistory[historyKey(id, f)] else { continue }
+                moverInputs.append(MoverInput(cardId: id, name: card.name + (f == .nonfoil ? "" : " (\(f.rawValue))"), set: card.set, finish: f, series: series, tracked: true))
+            }
+        }
+        for m in Market.detectMovers(moverInputs, settings: p.settings) {
+            let kind: PriceAlert.Kind = m.kind == .spike ? .spike : .crash
+            let already = alerts.contains { $0.cardId == m.cardId && $0.kind == kind && $0.createdAt.hasPrefix(date) }
+            if !already {
+                alerts.insert(PriceAlert(id: UUID().uuidString, cardId: m.cardId, name: m.name, kind: kind, message: Market.moverText(m), createdAt: isoNow(now), read: false), at: 0)
+            }
+        }
         next.alerts = Array(alerts.prefix(200))
 
         // Log 7-day forecasts once per day for watched + collection cards

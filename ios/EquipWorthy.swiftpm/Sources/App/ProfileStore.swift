@@ -197,6 +197,7 @@ final class ProfileStore: ObservableObject {
         guard merged.id == profile.id else { return }
         var p = merged
         p.cardCache = profile.cardCache
+        p.market = profile.market
         profile = p
         dirty = true
         await save(quiet: true)

@@ -47,7 +47,8 @@ export default function CardPage() {
 
   const series = p.priceHistory[historyKey(id, finish)] ?? [];
   const price = priceFor(card, finish);
-  const fc = useMemo(() => (card ? forecast(card, series, price, horizon) : null), [card, series, price, horizon]);
+  const synergy = p.market?.synergy.find((x) => x.cardId === id || (card?.oracleId && p.market?.cards[x.cardId]?.oracleId === card.oracleId));
+  const fc = useMemo(() => (card ? forecast(card, series, price, horizon, new Date(), synergy) : null), [card, series, price, horizon, synergy]);
 
   if (err) return <p className="error">{err}</p>;
   if (!card) return <p className="muted">Loading…</p>;

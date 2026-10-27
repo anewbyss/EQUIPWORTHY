@@ -58,6 +58,7 @@ extension View {
     func saveToolbar() -> some View {
         toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                RefreshButton()
                 SyncButton()
                 SaveButton()
             }

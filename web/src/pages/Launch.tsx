@@ -48,6 +48,16 @@ export const SCREENS: Screen[] = [
       return n ? `${n} new alert${n === 1 ? "" : "s"}` : p.watchlist.length ? `${p.watchlist.length} watched` : null;
     },
   },
+  {
+    to: "/market", title: "Market Watch", blurb: "Fast movers and new-set synergy picks", accent: "gold",
+    icon: "M3 17l6-6 4 4 8-8M15 7h6v6",
+    stat: (p) => {
+      const m = p.market;
+      if (!m) return null;
+      const n = m.movers.length;
+      return n ? `${n} fast mover${n === 1 ? "" : "s"}` : m.synergy.length ? `${m.synergy.length} synergy picks` : null;
+    },
+  },
   { to: "/trade", title: "Trade Scale", blurb: "Balance a trade, store trade-in values", accent: "violet", icon: "M12 3v18M5 7h14M5 7l-3 7h6zM19 7l-3 7h6zM8 21h8" },
   {
     to: "/life", title: "Life & Dice", blurb: "Life, commander damage, counters, dice", accent: "gold",

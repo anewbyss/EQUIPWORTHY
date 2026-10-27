@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
-import { needsRefresh, refreshPrices } from "./lib/prices";
-import { getState, useStore } from "./lib/store";
+import { useStore } from "./lib/store";
 import Dashboard from "./pages/Dashboard";
 import LaunchPage, { SCREENS } from "./pages/Launch";
 import SearchPage from "./pages/Search";
@@ -13,6 +12,7 @@ import DecksPage from "./pages/Decks";
 import DeckPage from "./pages/DeckPage";
 import WatchPage from "./pages/Watchlist";
 import TradePage from "./pages/Trade";
+import MarketPage from "./pages/Market";
 import LifeTrackerPage from "./pages/LifeTracker";
 import SetsPage from "./pages/Sets";
 import SettingsPage from "./pages/Settings";
@@ -23,12 +23,6 @@ export default function App() {
   const s = useStore();
   const [menu, setMenu] = useState(false);
   const unread = s.profile?.alerts.filter((a) => !a.read).length ?? 0;
-
-  // Daily auto-refresh of prices on launch
-  useEffect(() => {
-    const p = getState().profile;
-    if (p && needsRefresh(p)) refreshPrices().catch(() => undefined);
-  }, [s.profile?.id]);
 
   return (
     <div className="app">
@@ -66,6 +60,7 @@ export default function App() {
           <Route path="/deck/:id" element={<DeckPage />} />
           <Route path="/watch" element={<WatchPage />} />
           <Route path="/trade" element={<TradePage />} />
+          <Route path="/market" element={<MarketPage />} />
           <Route path="/life" element={<LifeTrackerPage />} />
           <Route path="/sets" element={<SetsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

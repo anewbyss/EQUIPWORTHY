@@ -54,7 +54,7 @@ public enum Forecaster {
         return rnd(0.4 * priceF + 0.35 * pop + 0.25 * age, 3)
     }
 
-    public static func forecast(card: CardSummary, series: PriceSeries, currentPrice: Double?, horizonDays: Int = 30, now: Date = Date()) -> Forecast? {
+    public static func forecast(card: CardSummary, series: PriceSeries, currentPrice: Double?, horizonDays: Int = 30, now: Date = Date(), synergy: SynergyPick? = nil) -> Forecast? {
         let sorted = series.filter { $0.price > 0 }.sorted { $0.date < $1.date }
         guard let price = currentPrice ?? sorted.last?.price, price > 0 else { return nil }
         var factors: [ForecastFactor] = []
@@ -120,6 +120,12 @@ public enum Forecaster {
         let banned = ["commander", "modern", "pioneer", "standard", "legacy"].filter { card.legalities[$0] == "banned" }
         if !banned.isEmpty {
             factors.append(ForecastFactor(label: "Banned in \(banned.joined(separator: ", "))", impactPct: -3, detail: "Banned cards lose demand from those formats."))
+        }
+
+        // 9. Incoming synergy from new / upcoming sets
+        if let syn = synergy, syn.score >= 2 {
+            factors.append(ForecastFactor(label: "Incoming synergy", impactPct: Market.synergyImpact(syn.score),
+                                          detail: "Fits new cards: \(syn.reasons.prefix(2).joined(separator: "; ")). New cards that play well with older ones often push their prices up."))
         }
 
         if price < 0.5 {

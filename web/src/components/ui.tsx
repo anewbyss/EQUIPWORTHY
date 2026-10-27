@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import * as scry from "../lib/scryfall";
 import { cacheCards, save, useStore } from "../lib/store";
 import { syncNow, useSyncStatus } from "../lib/syncManager";
+import { refreshAll, useRefreshStatus } from "../lib/refresh";
 import type { CardSummary } from "../lib/types";
 
 function ago(iso: string | null): string {
@@ -11,7 +12,8 @@ function ago(iso: string | null): string {
   if (s < 5) return "just now";
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  return new Date(iso).toLocaleString();
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
 /** Manual save control shown on every page, with autosave status. */
@@ -32,7 +34,25 @@ export function SaveButton() {
         Save
       </button>
       <SyncButton />
+      <RefreshButton />
     </div>
+  );
+}
+
+/** Price refresh tool: shows when prices last updated and refreshes on demand. */
+export function RefreshButton() {
+  const st = useRefreshStatus();
+  const s = useStore();
+  const last = s.profile?.lastPriceRefresh ?? null;
+  return (
+    <button
+      className={`btn small refresh-btn ${st.error ? "danger" : ""}`}
+      onClick={() => void refreshAll({ force: true })}
+      disabled={st.running}
+      title={st.error ?? "Prices update automatically once a day. Click to refresh now (also re-scans the market)."}
+    >
+      {st.running ? `↻ ${st.step ?? "Refreshing…"}` : st.error ? "↻ Retry refresh" : `↻ Prices ${ago(last)}`}
+    </button>
   );
 }
 

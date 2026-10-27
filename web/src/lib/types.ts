@@ -37,6 +37,7 @@ export interface CardSummary {
   scryfallUrl?: string;
   oracleText?: string;
   printsCount?: number; // number of printings with this oracle id, when known
+  keywords?: string[]; // Scryfall keyword abilities, e.g. "Proliferate"
   fetchedAt: string; // ISO timestamp
 }
 
@@ -113,7 +114,7 @@ export interface Alert {
   id: string;
   cardId: string;
   name: string;
-  kind: "below" | "above" | "move";
+  kind: "below" | "above" | "move" | "spike" | "crash";
   message: string;
   createdAt: string;
   read: boolean;
@@ -161,6 +162,14 @@ export interface Settings {
   conditionMultipliers: Record<Condition, number>;
   autoRefreshHours: number;
   notifications: boolean;
+  /** Fast-mover detection: % move in 1 day / 7 days that counts as a spike or crash. */
+  spikePct1d: number;
+  spikePct7d: number;
+  /** Ignore moves on cards cheaper than this (bulk noise). */
+  moverMinPrice: number;
+  /** Daily scan of popular Commander cards for market-wide movers and synergy picks. */
+  marketScan: boolean;
+  marketUniverse: number;
 }
 
 export interface Profile {
@@ -187,6 +196,43 @@ export interface Profile {
   pendingBatch?: PendingRow[];
   /** Current life-tracker game, saved so a game survives closing the app. */
   game?: GameState;
+  /** Market-wide price watch and synergy picks. Rebuilt on each device, not synced. */
+  market?: MarketData;
+}
+
+/** One card flagged as moving fast. */
+export interface Mover {
+  cardId: string;
+  name: string;
+  set: string;
+  finish: Finish;
+  price: number;
+  d1?: number; // % change over ~1 day
+  d7?: number; // % change over ~7 days
+  kind: "spike" | "crash";
+  tracked: boolean; // in your collection / decks / watchlist
+}
+
+/** A card that may rise because new cards play well with it. */
+export interface SynergyPick {
+  cardId: string;
+  name: string;
+  set: string;
+  price?: number;
+  score: number;
+  reasons: string[]; // e.g. "Proliferate: shared with 3 new cards"
+  sources: string[]; // names of the new cards driving it
+}
+
+export interface MarketData {
+  /** cardId -> daily non-foil (or foil if no non-foil) prices for the scanned universe */
+  history: Record<string, PriceSeries>;
+  /** minimal card data for the universe and new-set cards */
+  cards: Record<string, CardSummary>;
+  movers: Mover[];
+  synergy: SynergyPick[];
+  newSets: { code: string; name: string; releasedAt?: string }[];
+  lastScan?: string;
 }
 
 export interface GamePlayer {
@@ -249,8 +295,13 @@ export const defaultSettings = (): Settings => ({
   defaultCondition: "NM",
   defaultBinder: "Main",
   conditionMultipliers: { NM: 1, LP: 0.9, MP: 0.75, HP: 0.55, DMG: 0.35 },
-  autoRefreshHours: 12,
+  autoRefreshHours: 24,
   notifications: true,
+  spikePct1d: 15,
+  spikePct7d: 25,
+  moverMinPrice: 1,
+  marketScan: true,
+  marketUniverse: 525,
 });
 
 export const newProfile = (name: string): Profile => {

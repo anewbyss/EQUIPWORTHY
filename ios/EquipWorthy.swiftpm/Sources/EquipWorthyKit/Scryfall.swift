@@ -67,6 +67,7 @@ struct RawCard: Decodable {
     var related_uris: Related?
     var scryfall_uri: String?
     var oracle_text: String?
+    var keywords: [String]?
 
     var summary: CardSummary {
         let face = card_faces?.first
@@ -82,7 +83,7 @@ struct RawCard: Decodable {
             finishes: (finishes ?? ["nonfoil"]).compactMap(Finish.init(rawValue:)),
             tcgplayerUrl: purchase_uris?.tcgplayer, edhrecUrl: related_uris?.edhrec, scryfallUrl: scryfall_uri,
             oracleText: oracle_text ?? card_faces?.compactMap(\.oracle_text).joined(separator: "\n//\n"),
-            fetchedAt: isoNow())
+            keywords: keywords, fetchedAt: isoNow())
     }
 }
 

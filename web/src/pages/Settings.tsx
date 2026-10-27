@@ -112,11 +112,28 @@ export default function SettingsPage() {
             </select>
           </label>
           <label className="small">
-            Auto-refresh prices every{" "}
+            Automatic price updates{" "}
             <select value={p.settings.autoRefreshHours} onChange={(e) => setS({ autoRefreshHours: Number(e.target.value) })}>
-              {[6, 12, 24, 48].map((h) => <option key={h} value={h}>{h} hours</option>)}
+              <option value={24}>Once a day</option>
+              <option value={12}>Twice a day</option>
+              <option value={6}>Every 6 hours</option>
             </select>
           </label>
+          <h3>Fast-mover alerts</h3>
+          <div className="row gap small">
+            <label>Alert at ±<input type="number" min={1} max={200} value={p.settings.spikePct1d} onChange={(e) => setS({ spikePct1d: Math.max(1, Number(e.target.value)) })} style={{ width: "4.5rem" }} />% in a day</label>
+            <label>or ±<input type="number" min={1} max={500} value={p.settings.spikePct7d} onChange={(e) => setS({ spikePct7d: Math.max(1, Number(e.target.value)) })} style={{ width: "4.5rem" }} />% in a week</label>
+            <label>ignore under $<input type="number" min={0} step={0.25} value={p.settings.moverMinPrice} onChange={(e) => setS({ moverMinPrice: Math.max(0, Number(e.target.value)) })} style={{ width: "4.5rem" }} /></label>
+          </div>
+          <label className="small row gap"><input type="checkbox" checked={p.settings.marketScan} onChange={(e) => setS({ marketScan: e.target.checked })} /> Daily market scan (fast movers across popular Commander cards + synergy picks from new sets)</label>
+          {p.settings.marketScan && (
+            <label className="small">
+              Cards to scan{" "}
+              <select value={p.settings.marketUniverse} onChange={(e) => setS({ marketUniverse: Number(e.target.value) })}>
+                {[175, 350, 525, 700, 1050].map((n) => <option key={n} value={n}>Top {n} by EDHREC popularity</option>)}
+              </select>
+            </label>
+          )}
           <label className="small row gap"><input type="checkbox" checked={p.settings.notifications} onChange={(e) => setS({ notifications: e.target.checked })} /> Price-alert notifications</label>
           <p className="muted small">Prices come from Scryfall, which publishes TCGplayer market prices in USD once a day. EquipWorthy keeps one snapshot per day per card on this device to build price history.</p>
         </div>
