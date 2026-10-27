@@ -9,8 +9,8 @@ struct RootView: View {
 
     var body: some View {
         TabView {
-            NavigationStack { DashboardView() }
-                .tabItem { Label("Home", systemImage: "chart.line.uptrend.xyaxis") }
+            NavigationStack { LaunchView() }
+                .tabItem { Label("Home", systemImage: "square.grid.2x2") }
             NavigationStack { CollectionView() }
                 .tabItem { Label("Collection", systemImage: "square.stack.3d.up") }
             NavigationStack { ScannerView() }
@@ -29,6 +29,7 @@ struct MoreView: View {
     @EnvironmentObject var store: ProfileStore
     var body: some View {
         List {
+            NavigationLink { DashboardView() } label: { Label("Dashboard", systemImage: "chart.line.uptrend.xyaxis") }
             NavigationLink { DecksView() } label: { Label("Decks", systemImage: "rectangle.stack") }
             NavigationLink { SearchView() } label: { Label("Search", systemImage: "magnifyingglass") }
             NavigationLink { BatchView() } label: { Label("Batch Entry", systemImage: "list.bullet.rectangle") }
