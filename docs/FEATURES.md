@@ -2,6 +2,12 @@
 
 ✅ = in both the web and iOS apps. Notes mark platform differences.
 
+## 0. Launch page
+- ✅ The app opens on a home screen with a tile for every screen (Dashboard, Search, Collection, Batch Entry, Scan, Decks, Watchlist, Trade Scale, Life & Dice, Sets & Spoilers, Settings)
+- ✅ Tiles show live details: collection value, card count, cards waiting for review, unread alerts, a game in progress
+- ✅ Quick card lookup right on the home screen
+- ✅ Web: the logo and the "Home" link return to it. iOS: it's the Home tab
+
 ## 1. Price hub
 - ✅ Live TCGplayer market price (USD) for every printing and finish (non-foil, foil, etched), via Scryfall
 - ✅ Price history chart (7D / 30D / 90D / 1Y / All) with a crosshair tooltip, built from daily on-device snapshots

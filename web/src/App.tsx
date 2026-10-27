@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { needsRefresh, refreshPrices } from "./lib/prices";
 import { getState, useStore } from "./lib/store";
 import Dashboard from "./pages/Dashboard";
+import LaunchPage, { SCREENS } from "./pages/Launch";
 import SearchPage from "./pages/Search";
 import CardPage from "./pages/CardPage";
 import CollectionPage from "./pages/Collection";
@@ -16,19 +17,7 @@ import LifeTrackerPage from "./pages/LifeTracker";
 import SetsPage from "./pages/Sets";
 import SettingsPage from "./pages/Settings";
 
-const NAV: [string, string][] = [
-  ["/", "Dashboard"],
-  ["/search", "Search"],
-  ["/collection", "Collection"],
-  ["/batch", "Batch Entry"],
-  ["/scan", "Scan"],
-  ["/decks", "Decks"],
-  ["/watch", "Watchlist"],
-  ["/trade", "Trade Scale"],
-  ["/life", "Life & Dice"],
-  ["/sets", "Sets & Spoilers"],
-  ["/settings", "Settings"],
-];
+const NAV: [string, string][] = [["/", "Home"], ...SCREENS.map((x): [string, string] => [x.to, x.title])];
 
 export default function App() {
   const s = useStore();
@@ -45,10 +34,12 @@ export default function App() {
     <div className="app">
       <nav className={`sidebar ${menu ? "open" : ""}`}>
         <div className="brand">
-          <img src="./favicon.svg" alt="" width={28} height={28} />
-          <span>
-            EquipWorthy<small>Tracking</small>
-          </span>
+          <Link to="/" className="brand-link" onClick={() => setMenu(false)} aria-label="EquipWorthy home">
+            <img src="./favicon.svg" alt="" width={28} height={28} />
+            <span>
+              EquipWorthy<small>Tracking</small>
+            </span>
+          </Link>
           <button className="menu-btn" onClick={() => setMenu(!menu)} aria-label="Menu">☰</button>
         </div>
         <div className="nav-links" onClick={() => setMenu(false)}>
@@ -63,7 +54,9 @@ export default function App() {
       </nav>
       <main className="content">
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<LaunchPage />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="*" element={<LaunchPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/card/:id" element={<CardPage />} />
           <Route path="/collection" element={<CollectionPage />} />
