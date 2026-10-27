@@ -68,13 +68,14 @@ export function mergeSeries(a: PriceSeries = [], b: PriceSeries = []): PriceSeri
   return [...m.entries()].sort((x, y) => x[0].localeCompare(y[0])).slice(-730);
 }
 
-/** Card data is not synced (it's large and re-downloadable); everything else is. */
-export const SYNC_EXCLUDED = ["cardCache"] as const;
+/** Card data and the market scan are not synced (large and rebuilt on each device); everything else is. */
+export const SYNC_EXCLUDED = ["cardCache", "market"] as const;
 export type SyncedProfile = Omit<Profile, "cardCache">;
 
 export function forSync(p: Profile): SyncedProfile {
-  const { cardCache: _omit, ...rest } = p;
+  const { cardCache: _omit, market: _market, ...rest } = p;
   void _omit;
+  void _market;
   return rest;
 }
 

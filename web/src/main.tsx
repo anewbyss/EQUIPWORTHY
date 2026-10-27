@@ -4,6 +4,7 @@ import { HashRouter } from "react-router-dom";
 import App from "./App";
 import { init } from "./lib/store";
 import { startAutoSync } from "./lib/syncManager";
+import { startAutoRefresh } from "./lib/refresh";
 import "./styles.css";
 
 const root = ReactDOM.createRoot(document.getElementById("root")!);
@@ -19,6 +20,7 @@ navigator.storage?.persist?.().catch(() => undefined);
 init()
   .then(() => {
     startAutoSync();
+    startAutoRefresh();
     root.render(
       <React.StrictMode>
         <HashRouter>

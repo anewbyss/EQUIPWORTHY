@@ -3,7 +3,8 @@
 // The Swift port (ios/EquipWorthyKit/Sources/EquipWorthyKit/Forecast.swift)
 // must stay numerically identical — see docs/FORECASTING.md.
 
-import type { CardSummary, ForecastLogEntry, PriceSeries } from "./types";
+import type { CardSummary, ForecastLogEntry, PriceSeries, SynergyPick } from "./types";
+import { synergyImpact } from "./market";
 
 export interface Factor {
   label: string;
@@ -63,7 +64,7 @@ function stdev(v: number[]): number {
   return Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length - 1));
 }
 
-export function forecast(card: CardSummary, series: PriceSeries, currentPrice: number | undefined, horizonDays = 30, now = new Date()): Forecast | null {
+export function forecast(card: CardSummary, series: PriceSeries, currentPrice: number | undefined, horizonDays = 30, now = new Date(), synergy?: SynergyPick): Forecast | null {
   const sorted = [...series].filter(([, p]) => p > 0).sort((a, b) => a[0].localeCompare(b[0]));
   const price = currentPrice ?? sorted[sorted.length - 1]?.[1];
   if (!price || price <= 0) return null;
@@ -141,6 +142,15 @@ export function forecast(card: CardSummary, series: PriceSeries, currentPrice: n
   // 8. Bans
   const banned = ["commander", "modern", "pioneer", "standard", "legacy"].filter((f) => card.legalities[f] === "banned");
   if (banned.length) factors.push({ label: `Banned in ${banned.join(", ")}`, impactPct: -3, detail: "Banned cards lose demand from those formats." });
+
+  // 9. Incoming synergy from new / upcoming sets
+  if (synergy && synergy.score >= 2) {
+    factors.push({
+      label: "Incoming synergy",
+      impactPct: synergyImpact(synergy.score),
+      detail: `Fits new cards: ${synergy.reasons.slice(0, 2).join("; ")}. New cards that play well with older ones often push their prices up.`,
+    });
+  }
 
   // Bulk floor: very cheap cards can't fall much further
   if (price < 0.5) {

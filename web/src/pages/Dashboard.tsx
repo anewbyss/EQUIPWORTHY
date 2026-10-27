@@ -1,18 +1,16 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { LineChart } from "../components/LineChart";
 import { CardPicker, Change, Empty, PageHeader, Stat, Thumb } from "../components/ui";
 import { accuracy } from "../lib/forecast";
 import { buylistValue, usd } from "../lib/deckstats";
-import { change, collectionValue, refreshPrices, trackedIds } from "../lib/prices";
+import { change, collectionValue, trackedIds } from "../lib/prices";
 import { useProfile } from "../lib/store";
 import { historyKey, priceFor, type Finish } from "../lib/types";
 
 export default function Dashboard() {
   const p = useProfile();
   const nav = useNavigate();
-  const [busy, setBusy] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
 
   const value = collectionValue(p);
   const cost = p.collection.reduce((a, c) => a + (c.purchasePrice ?? 0) * c.quantity, 0);
@@ -51,27 +49,9 @@ export default function Dashboard() {
     [p],
   );
 
-  const refresh = async () => {
-    setErr(null);
-    setBusy("Starting…");
-    try {
-      const r = await refreshPrices((d, t) => setBusy(`Updating ${d}/${t}…`));
-      setBusy(null);
-      if (r.newAlerts.length) setErr(`${r.newAlerts.length} new price alert(s). See Watchlist.`);
-    } catch (e) {
-      setBusy(null);
-      setErr(`Price refresh failed: ${(e as Error).message}`);
-    }
-  };
-
   return (
     <>
-      <PageHeader title="Dashboard" sub={p.lastPriceRefresh ? `Prices updated ${new Date(p.lastPriceRefresh).toLocaleString()}` : "Prices not refreshed yet"}>
-        <button className="btn primary" onClick={refresh} disabled={!!busy}>
-          {busy ?? "Refresh prices"}
-        </button>
-      </PageHeader>
-      {err && <p className="small">{err}</p>}
+      <PageHeader title="Dashboard" sub={p.lastPriceRefresh ? `Prices updated ${new Date(p.lastPriceRefresh).toLocaleString()} · updates automatically once a day` : "Prices not refreshed yet"} />
 
       <div className="card row gap">
         <CardPicker onPick={(c) => nav(`/card/${c.id}`)} placeholder="Look up any card's price, history and forecast…" />

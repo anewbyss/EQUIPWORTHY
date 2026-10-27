@@ -4,10 +4,12 @@
 
 import * as scry from "./scryfall";
 import { forecast, resolveForecasts } from "./forecast";
+import { detectMovers, moverText, type MoverInput } from "./market";
 import { getState, update } from "./store";
 import { historyKey, priceFor, today, uid, type Alert, type CardSummary, type Finish, type PriceSeries, type Profile } from "./types";
 
 const MAX_POINTS = 730;
+const defaultMoverSettings = { spikePct1d: 15, spikePct7d: 25, moverMinPrice: 1 };
 
 export function trackedIds(p: Profile): string[] {
   const ids = new Set<string>();
@@ -69,6 +71,20 @@ export function applySnapshot(p: Profile, fresh: CardSummary[], now = new Date()
       const already = alerts.some((a) => a.cardId === w.cardId && a.kind === kind && a.createdAt.startsWith(date));
       if (!already) alerts.unshift({ id: uid(), cardId: w.cardId, name: w.name, kind, message: `${w.name} ${m}`, createdAt: now.toISOString(), read: false });
     }
+  }
+  // Fast movers among your own cards (one alert per card per direction per day)
+  const moverInputs: MoverInput[] = [];
+  for (const id of trackedIds(p)) {
+    const card = cardCache[id];
+    if (!card) continue;
+    for (const f of card.finishes) {
+      const series = priceHistory[historyKey(id, f)];
+      if (series) moverInputs.push({ cardId: id, name: card.name + (f === "nonfoil" ? "" : ` (${f})`), set: card.set, finish: f, series, tracked: true });
+    }
+  }
+  for (const m of detectMovers(moverInputs, { ...defaultMoverSettings, ...p.settings })) {
+    const already = alerts.some((a) => a.cardId === m.cardId && a.kind === m.kind && a.createdAt.startsWith(date));
+    if (!already) alerts.unshift({ id: uid(), cardId: m.cardId, name: m.name, kind: m.kind, message: moverText(m), createdAt: now.toISOString(), read: false });
   }
   next.alerts = alerts.slice(0, 200);
 

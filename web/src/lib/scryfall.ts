@@ -79,6 +79,7 @@ export interface RawCard {
   scryfall_uri?: string;
   oracle_text?: string;
   prints_search_uri?: string;
+  keywords?: string[];
 }
 
 interface List<T> {
@@ -119,6 +120,7 @@ export function toSummary(c: RawCard): CardSummary {
     edhrecUrl: c.related_uris?.edhrec,
     scryfallUrl: c.scryfall_uri,
     oracleText: c.oracle_text ?? c.card_faces?.map((f) => f.oracle_text).filter(Boolean).join("\n//\n"),
+    keywords: c.keywords,
     fetchedAt: new Date().toISOString(),
   };
 }
