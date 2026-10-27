@@ -80,14 +80,19 @@ public enum Market {
             let price = last.price
             let d1 = pctOver(m.series, days: 1)
             let d7 = pctOver(m.series, days: 7)
-            let before = d7.map { price / (1 + $0 / 100) } ?? d1.map { price / (1 + $0 / 100) } ?? price
+            var before: Double = price
+            if let d = d7 { before = price / (1 + d / 100) } else if let d = d1 { before = price / (1 + d / 100) }
             if max(price, before) < s.moverMinPrice { continue }
             let up = (d1 ?? 0) >= s.spikePct1d || (d7 ?? 0) >= s.spikePct7d
             let down = (d1 ?? 0) <= -s.spikePct1d || (d7 ?? 0) <= -s.spikePct7d
             if !up && !down { continue }
             out.append(Mover(cardId: m.cardId, name: m.name, set: m.set, finish: m.finish, price: price, d1: d1, d7: d7, kind: up ? .spike : .crash, tracked: m.tracked))
         }
-        func size(_ x: Mover) -> Double { max(abs(x.d1 ?? 0), abs(x.d7 ?? 0)) }
+        func size(_ x: Mover) -> Double {
+            let a: Double = abs(x.d1 ?? 0)
+            let b: Double = abs(x.d7 ?? 0)
+            return max(a, b)
+        }
         return out.sorted { size($0) > size($1) }
     }
 
@@ -208,7 +213,8 @@ public enum Market {
             }
             if contributions.isEmpty { continue }
             contributions.sort { $0.score > $1.score }
-            var score = contributions.prefix(5).reduce(0) { $0 + $1.score }
+            var score = 0.0
+            for x in contributions.prefix(5) { score += x.score }
             let price = c.prices.usd ?? c.prices.usdFoil
             if let p = price, p > 40 { score *= 0.6 }
             if let p = price, p < 0.5 { score *= 0.5 }
@@ -217,13 +223,17 @@ public enum Market {
             score = rnd1(score)
             if score < minScore { continue }
             // Stable sort by weight, ties keep first-seen order (like the web version).
-            let reasons = reasonOrder.enumerated()
-                .sorted { (reasonWeight[$0.element]!, -$0.offset) > (reasonWeight[$1.element]!, -$1.offset) }
-                .prefix(4)
-                .map { label -> String in
-                    let n = reasonSources[label.element]?.count ?? 0
-                    return label.element.hasPrefix("Fits new commander") ? label.element : "\(label.element): shared with \(n) new card\(n == 1 ? "" : "s")"
-                }
+            let ranked: [String] = reasonOrder.enumerated().sorted { a, b in
+                let wa: Double = reasonWeight[a.element] ?? 0
+                let wb: Double = reasonWeight[b.element] ?? 0
+                return wa != wb ? wa > wb : a.offset < b.offset
+            }.map { $0.element }
+            var reasons: [String] = []
+            for label in ranked.prefix(4) {
+                let n: Int = reasonSources[label]?.count ?? 0
+                if label.hasPrefix("Fits new commander") { reasons.append(label) }
+                else { reasons.append("\(label): shared with \(n) new card\(n == 1 ? "" : "s")") }
+            }
             picks.append(SynergyPick(cardId: c.id, name: c.name, set: c.set, price: price, score: score, reasons: reasons, sources: contributions.prefix(5).map(\.source)))
         }
         return Array(picks.sorted { $0.score > $1.score }.prefix(limit))
