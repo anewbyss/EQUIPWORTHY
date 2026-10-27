@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import * as scry from "../lib/scryfall";
 import { cacheCards, save, useStore } from "../lib/store";
+import { syncNow, useSyncStatus } from "../lib/syncManager";
 import type { CardSummary } from "../lib/types";
 
 function ago(iso: string | null): string {
@@ -30,7 +31,20 @@ export function SaveButton() {
       <button className="btn small" onClick={() => void save()} disabled={s.saving}>
         Save
       </button>
+      <SyncButton />
     </div>
+  );
+}
+
+/** Sync status + manual sync, shown next to Save once sync is set up. */
+export function SyncButton() {
+  const st = useSyncStatus();
+  if (!st.configured) return null;
+  const label = st.syncing ? "Syncing…" : st.error ? "Sync failed" : st.lastSync ? `Synced ${ago(st.lastSync)}` : "Not synced yet";
+  return (
+    <button className={`btn small sync-btn ${st.error ? "danger" : ""}`} onClick={() => void syncNow()} disabled={st.syncing} title={st.error ?? "Sync with your other devices now"}>
+      ⇅ {label}
+    </button>
   );
 }
 

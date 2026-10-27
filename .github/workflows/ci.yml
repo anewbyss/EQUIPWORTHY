@@ -26,14 +26,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Core package tests
-        working-directory: ios/EquipWorthyKit
+        working-directory: ios
         run: swift test
-      - name: Generate Xcode project
-        working-directory: ios
-        run: brew install xcodegen && xcodegen
-      - name: Build app for simulator
-        working-directory: ios
+      - name: Build app package for simulator
+        working-directory: ios/EquipWorthy.swiftpm
         run: |
-          xcodebuild -project EquipWorthy.xcodeproj -scheme EquipWorthy \
+          xcodebuild -scheme EquipWorthy \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO -quiet build

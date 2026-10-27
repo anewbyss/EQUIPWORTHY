@@ -1,6 +1,6 @@
-EquipWorthy.xcodeproj/
-EquipWorthy/Info.plist
 .build/
 .swiftpm/
+*.xcodeproj/
 DerivedData/
 xcuserdata/
+EquipWorthy.swiftpm/.swiftpm/

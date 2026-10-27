@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader, PctSlider } from "../components/ui";
 import { createProfile, deleteProfile, download, exportProfile, importProfile, save, switchProfile, update, useStore } from "../lib/store";
 import { CONDITIONS, type Condition, type Settings } from "../lib/types";
+import { connect, disconnect, downloadProfile, loadConfig, remoteProfiles, setAutoSync, syncNow, useSyncStatus } from "../lib/syncManager";
+import type { Envelope } from "../lib/sync";
 
 export default function SettingsPage() {
   const s = useStore();
@@ -14,8 +16,9 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" sub="Everything is stored locally on this device. Nothing is uploaded." />
+      <PageHeader title="Settings" sub="Everything is stored on this device. Sync is optional and end-to-end encrypted." />
       {msg && <p className="up">{msg}</p>}
+      <SyncSettings />
       <div className="grid2">
         <div className="card stack">
           <h2>Profiles</h2>
@@ -119,5 +122,96 @@ export default function SettingsPage() {
         </div>
       </div>
     </>
+  );
+}
+
+const TOKEN_URL = "https://github.com/settings/tokens/new?scopes=gist&description=EquipWorthy%20sync";
+
+function SyncSettings() {
+  const st = useSyncStatus();
+  const s = useStore();
+  const [token, setToken] = useState("");
+  const [pass, setPass] = useState("");
+  const [pass2, setPass2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [remote, setRemote] = useState<Envelope[] | null>(null);
+
+  useEffect(() => {
+    if (st.configured) remoteProfiles().then(setRemote, () => setRemote(null));
+  }, [st.configured, st.lastSync]);
+
+  const onConnect = async () => {
+    setErr(null);
+    if (pass.length < 8) return setErr("Use a passphrase of at least 8 characters.");
+    if (pass !== pass2) return setErr("The passphrases don't match.");
+    setBusy(true);
+    try {
+      setRemote(await connect(token, pass));
+      setToken(""); setPass(""); setPass2("");
+      await syncNow();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const missing = (remote ?? []).filter((r) => !s.profiles.some((m) => m.id === r.profileId));
+
+  return (
+    <div className="card stack">
+      <h2>Sync between devices</h2>
+      {!st.configured ? (
+        <>
+          <p className="muted small">
+            Keep this browser, the iPhone/iPad app and your other devices in sync. Your profiles are encrypted with a passphrase on this device and stored in a private Gist on your own GitHub account. Nobody without the passphrase can read them, not even GitHub. Edits made on different devices are merged.
+          </p>
+          <ol className="small">
+            <li><a href={TOKEN_URL} target="_blank" rel="noreferrer">Create a GitHub token</a> with only the <b>gist</b> permission (choose "No expiration" or set a reminder to renew it).</li>
+            <li>Paste it below and choose a sync passphrase. Use the <b>same token and passphrase on every device</b>.</li>
+          </ol>
+          <div className="row gap">
+            <input type="password" placeholder="GitHub token (ghp_…)" value={token} onChange={(e) => setToken(e.target.value)} style={{ flex: 1, minWidth: 220 }} aria-label="GitHub token" autoComplete="off" />
+          </div>
+          <div className="row gap">
+            <input type="password" placeholder="Sync passphrase" value={pass} onChange={(e) => setPass(e.target.value)} aria-label="Sync passphrase" autoComplete="new-password" />
+            <input type="password" placeholder="Repeat passphrase" value={pass2} onChange={(e) => setPass2(e.target.value)} aria-label="Repeat passphrase" autoComplete="new-password" />
+            <button className="btn primary" disabled={busy || !token || !pass} onClick={() => void onConnect()}>{busy ? "Connecting…" : "Turn on sync"}</button>
+          </div>
+          <p className="muted small">If you forget the passphrase, synced data can't be recovered, but each device keeps its own local copy.</p>
+        </>
+      ) : (
+        <>
+          <div className="row gap">
+            <span className={st.error ? "error" : "up"}>{st.error ? `⚠ ${st.error}` : st.syncing ? "Syncing…" : st.lastSync ? `✓ Synced ${new Date(st.lastSync).toLocaleString()}` : "Connected"}</span>
+            <button className="btn primary small" onClick={() => void syncNow()} disabled={st.syncing}>Sync now</button>
+            <label className="row gap small"><input type="checkbox" checked={st.autoSync} onChange={(e) => setAutoSync(e.target.checked)} /> Sync automatically</label>
+            <button className="btn small danger" onClick={() => confirm("Turn off sync on this device? Your local data stays here.") && disconnect()}>Turn off</button>
+          </div>
+          <p className="muted small">
+            Syncs when the app opens, a few seconds after changes are saved, when you come back to the tab, and every 5 minutes. Card images and prices are downloaded again on each device rather than synced.
+            {loadConfig()?.gistId && <> Gist: <code>{loadConfig()!.gistId!.slice(0, 8)}…</code></>}
+          </p>
+          {missing.length > 0 && (
+            <div>
+              <h3>Profiles on your other devices</h3>
+              <table>
+                <tbody>
+                  {missing.map((r) => (
+                    <tr key={r.profileId}>
+                      <td>{r.name}</td>
+                      <td className="muted small">updated {new Date(r.updatedAt).toLocaleString()}</td>
+                      <td className="right"><button className="btn small" onClick={() => downloadProfile(r).catch((e) => setErr((e as Error).message))}>Download</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+      {err && <p className="error small">{err}</p>}
+    </div>
   );
 }

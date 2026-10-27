@@ -307,3 +307,10 @@ td input, td select { padding: 0.2rem 0.35rem; }
 @keyframes pop { from { transform: scale(0.6) rotate(-8deg); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .roll-result { animation: none; } }
 @media (max-width: 860px) { .players, .players-3 { grid-template-columns: minmax(0, 1fr); } }
+
+/* Home Screen app on iPhone/iPad: keep content clear of the notch and home bar */
+.sync-btn { white-space: nowrap; }
+@media (max-width: 860px) {
+  .sidebar { padding-top: max(0.6rem, env(safe-area-inset-top)); }
+  .content { padding-bottom: max(2rem, env(safe-area-inset-bottom)); }
+}

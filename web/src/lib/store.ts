@@ -130,7 +130,39 @@ export function update(fn: (p: Profile) => Profile) {
   debounce = setTimeout(() => void save(), DEBOUNCE_MS);
 }
 
-export async function save(): Promise<boolean> {
+/** Listeners called after every successful save (used to schedule sync). */
+const saveListeners = new Set<() => void>();
+export const onSaved = (fn: () => void) => {
+  saveListeners.add(fn);
+  return () => saveListeners.delete(fn);
+};
+
+/**
+ * Replace the active profile with a merged copy from sync. Unlike update() this
+ * keeps the merged `updatedAt`, so devices don't bounce changes back and forth.
+ */
+export async function applySynced(merged: Omit<Profile, "cardCache">) {
+  if (!state.profile || state.profile.id !== merged.id) return;
+  const next: Profile = migrate({ ...merged, cardCache: state.profile.cardCache });
+  emit({ profile: next, dirty: true });
+  await save(true);
+}
+
+export const getBase = async (id: string) => (await get(`ew:syncbase:${id}`)) as Omit<Profile, "cardCache"> | undefined;
+export const setBase = (id: string, base: Omit<Profile, "cardCache">) => set(`ew:syncbase:${id}`, base);
+
+/** Add a profile that came from sync (keeps its id so later syncs match). */
+export async function addSyncedProfile(p: Omit<Profile, "cardCache">) {
+  if (state.dirty) await save();
+  const full = migrate({ ...p, cardCache: {} });
+  await set(profileKey(full.id), full);
+  const profiles = state.profiles.filter((m) => m.id !== full.id).concat(meta(full));
+  await set(INDEX_KEY, profiles);
+  emit({ profiles });
+  await switchProfile(full.id);
+}
+
+export async function save(quiet = false): Promise<boolean> {
   const p = state.profile;
   if (!p) return false;
   if (debounce) clearTimeout(debounce);
@@ -142,6 +174,7 @@ export async function save(): Promise<boolean> {
     await set(INDEX_KEY, profiles);
     // Only clear dirty if nothing changed while we were writing
     emit({ saving: false, dirty: state.profile !== p ? state.dirty : false, lastSaved: new Date().toISOString(), profiles, error: null });
+    if (!quiet) saveListeners.forEach((l) => l());
     return true;
   } catch (e) {
     emit({ saving: false, error: `Save failed: ${(e as Error).message}` });

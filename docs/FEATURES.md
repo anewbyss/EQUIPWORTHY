@@ -92,6 +92,14 @@
 - ✅ Export and import JSON backups in one format that works on both platforms
 - ✅ iOS: optional offline card database (Scryfall bulk data) so search and scanning work with no signal
 
-## 11. Look and feel
+## 11. Sync and platforms
+- ✅ Optional end-to-end encrypted sync between the web app, iPhone and iPad through a private GitHub Gist ([SYNC.md](SYNC.md))
+- ✅ Three-way merge, so edits on two devices are combined rather than overwritten
+- ✅ Automatic sync plus a sync button beside Save on every screen
+- ✅ Download a profile created on another device
+- ✅ Web app works in Safari, Chrome, Firefox and Edge; installable via Add to Home Screen or Add to Dock, and works offline
+- ✅ iOS app opens in Swift Playgrounds (iPad / Mac) and in Xcode
+
+## 12. Look and feel
 - Color theme: sky blue, violet and mustard gold, with light and dark modes on web (following the system setting) and iOS
 - Each player in the life tracker gets their own color (sky, violet, gold, teal, rose, slate)

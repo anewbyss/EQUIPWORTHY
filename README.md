@@ -20,44 +20,57 @@ Full feature list: [docs/FEATURES.md](docs/FEATURES.md). How forecasts work: [do
 ## Repository layout
 
 ```
-web/                 React + TypeScript + Vite web app
-  src/lib/           core logic (parsers, forecasting, storage, API clients) + tests
-  src/pages/         screens
+web/                          React + TypeScript + Vite web app (installable on iPhone/iPad/Mac via Safari)
+  src/lib/                    core logic (parsers, forecasting, storage, sync, API clients) + tests
+  src/pages/                  screens
 ios/
-  project.yml        XcodeGen spec for the app
-  EquipWorthy/       SwiftUI app (views, scanner, local storage, background refresh)
-  EquipWorthyKit/    Swift package: models, parsers, forecasting, Scryfall/EDHREC/Moxfield clients + tests
-docs/                feature, forecasting and data-model docs
+  EquipWorthy.swiftpm/        the iOS/iPadOS app: opens in Swift Playgrounds or Xcode
+    Sources/App/              SwiftUI screens, scanner, storage, sync
+    Sources/EquipWorthyKit/   shared core: models, parsers, forecasting, sync, Scryfall/EDHREC/Moxfield
+  Package.swift, Tests/       run the core tests with `swift test`
+docs/                         feature, forecasting, data-model and sync docs
 ```
 
-## Web app
+## Web app (Safari, Chrome, anything)
+
+**Use it in Safari:** the web app is a static site. Once this branch is merged to `main`, the included workflow publishes it to GitHub Pages. In the repo go to **Settings → Pages → Source: GitHub Actions** the first time. GitHub Pages on a **private** repo needs a paid GitHub plan; otherwise make the repo public or drag `web/dist` onto Netlify or Cloudflare Pages.
+
+- **iPhone / iPad:** open the site in Safari, tap **Share → Add to Home Screen**. It then opens full-screen like an app, works offline, and Safari won't clear its storage.
+- **Mac:** Safari → **File → Add to Dock**.
+- The camera scanner needs the site served over HTTPS (GitHub Pages is).
+
+Run it locally:
 
 ```bash
 cd web
 npm install
-npm run dev        # http://localhost:5173
-npm test           # unit tests
-npm run build      # static site in web/dist (host anywhere: GitHub Pages, Netlify, …)
+npm run dev        # http://localhost:5173  (add --host to open it from your phone on the same Wi-Fi)
+npm test
+npm run build      # static site in web/dist
 ```
 
-Data lives in the browser's IndexedDB. The app saves 1.5 s after every change, on a timer (20 s by default), and when the tab is hidden or closed. Every page also has a **Save** button, and Ctrl/Cmd+S saves too.
+## iOS / iPadOS app
 
-## iOS app
+**Swift Playgrounds (iPad or Mac):** copy the `ios/EquipWorthy.swiftpm` folder to your iPad or Mac, for example by downloading the repo as a ZIP and saving it to iCloud Drive, then open it in Swift Playgrounds 4.5 or later. Tap ▶ to run it. **App Settings → Install on device** puts it on your Home Screen.
 
-Requires Xcode 16+ and iOS 17+.
+**Xcode 16+ (Mac):** open `ios/EquipWorthy.swiftpm` directly in Xcode, pick your iPhone and press Run.
 
-```bash
-brew install xcodegen
-cd ios
-xcodegen            # creates EquipWorthy.xcodeproj
-open EquipWorthy.xcodeproj
-```
+Run the core tests with `cd ios && swift test`.
 
-Run the core tests with `cd ios/EquipWorthyKit && swift test`.
+Swift Playgrounds builds can't register background tasks, so in those builds prices and alerts refresh whenever you open the app instead of in the background.
 
-Profiles are JSON files in the app's Application Support folder. Autosave works the same way as on the web, plus a save whenever the app is backgrounded, and every screen has a Save button in its toolbar. A background refresh updates prices about every 6 hours and posts local notifications for watchlist alerts.
+## Saving and sync
 
-**Moving data between devices:** Settings → Export backup creates a `.json` file. Import it with Settings → Import on the other device, on either platform. The format is identical.
+Everything is stored on the device first. Each app saves 1.5 s after a change, on a timer, and when it closes, and every page or screen has a **Save** button.
+
+**Sync between devices** (Settings → Sync between devices) keeps the web app, iPhone and iPad in step:
+
+1. Create a GitHub token with only the **gist** permission ([link](https://github.com/settings/tokens/new?scopes=gist&description=EquipWorthy%20sync)).
+2. Enter the token and a sync passphrase on each device (the same ones everywhere).
+
+Profiles are **encrypted on the device** (PBKDF2-SHA256 + AES-256-GCM) and stored in a private Gist on your GitHub account, so GitHub can't read them. Sync runs on open, a few seconds after changes, every 5 minutes and on demand (the ⇅ button beside Save). If two devices edit at the same time, changes are **merged** rather than overwritten. Details: [docs/SYNC.md](docs/SYNC.md).
+
+Manual backups still work too: Settings → Export backup creates a `.json` file that imports on either platform.
 
 ## Data sources
 
