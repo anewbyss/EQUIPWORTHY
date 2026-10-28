@@ -4,6 +4,7 @@ import { createProfile, deleteProfile, download, exportProfile, importProfile, s
 import { CONDITIONS, type Condition, type Settings } from "../lib/types";
 import { connect, disconnect, downloadProfile, loadConfig, remoteProfiles, setAutoSync, syncNow, useSyncStatus } from "../lib/syncManager";
 import type { Envelope } from "../lib/sync";
+import { newTopic, syncChannels, testNtfy, testSms } from "../lib/channels";
 
 export default function SettingsPage() {
   const s = useStore();
@@ -19,6 +20,7 @@ export default function SettingsPage() {
       <PageHeader title="Settings" sub="Everything is stored on this device. Sync is optional and end-to-end encrypted." />
       {msg && <p className="up">{msg}</p>}
       <SyncSettings />
+      <ReminderDelivery />
       <div className="grid2">
         <div className="card stack">
           <h2>Profiles</h2>
@@ -229,6 +231,62 @@ function SyncSettings() {
         </>
       )}
       {err && <p className="error small">{err}</p>}
+    </div>
+  );
+}
+
+const SMS_GUIDE = "https://github.com/anewbyss/EQUIPWORTHY/blob/main/sms-worker/README.md";
+
+function ReminderDelivery() {
+  const s = useStore();
+  const p = s.profile!;
+  const st = p.settings;
+  const [msg, setMsg] = useState<string | null>(null);
+  const setS = (patch: Partial<Settings>) => update((cur) => ({ ...cur, settings: { ...cur.settings, ...patch } }));
+  const run = async (label: string, fn: () => Promise<unknown>) => {
+    setMsg(`${label}…`);
+    try {
+      await fn();
+      setMsg(`${label}: sent ✓`);
+    } catch (e) {
+      setMsg(`${label} failed: ${(e as Error).message}`);
+    }
+  };
+  return (
+    <div className="card stack">
+      <h2>Reminder delivery</h2>
+      <p className="muted small">Secret Lair reminders (24h, 1h, 15m, 5m before and at launch) always show inside EquipWorthy. Add one or both of these to get them when the app is closed. Each drop also has 📅 Add to calendar.</p>
+      <div className="grid2">
+        <div className="stack">
+          <h3>📲 Push alerts (free, ntfy app)</h3>
+          <ol className="small">
+            <li>Install the free <a href="https://ntfy.sh" target="_blank" rel="noreferrer">ntfy app</a> (iPhone / Android).</li>
+            <li>Create your private topic below, then in ntfy tap + and subscribe to the same topic name.</li>
+          </ol>
+          <div className="row gap">
+            <input value={st.ntfyTopic ?? ""} placeholder="Topic name" onChange={(e) => setS({ ntfyTopic: e.target.value.trim() || undefined })} style={{ flex: 1, minWidth: 160 }} aria-label="ntfy topic" />
+            <button className="btn small" onClick={() => setS({ ntfyTopic: newTopic() })}>Create private topic</button>
+          </div>
+          <label className="small">Server <input value={st.ntfyServer} onChange={(e) => setS({ ntfyServer: e.target.value.trim() || "https://ntfy.sh" })} style={{ width: "14rem" }} /></label>
+          <label className="row gap small"><input type="checkbox" checked={st.ntfyEnabled} disabled={!st.ntfyTopic} onChange={(e) => setS({ ntfyEnabled: e.target.checked })} /> Send Secret Lair reminders here</label>
+          <div className="row gap">
+            <button className="btn small" disabled={!st.ntfyTopic} onClick={() => void run("Test push", () => testNtfy(st))}>Send test</button>
+          </div>
+          <p className="muted small">Treat the topic name like a password: anyone who knows it can see the alerts. ntfy.sh holds scheduled alerts up to 3 days ahead, so EquipWorthy schedules each reminder once it's within 3 days, whenever the app is open. Opening it once in the 3 days before a drop covers every reminder for that drop.</p>
+        </div>
+        <div className="stack">
+          <h3>💬 Text messages (Twilio)</h3>
+          <p className="small">Real SMS to your phone, sent by your own small EquipWorthy text service. It's a one-time setup of about 15 minutes, costs about $1–2 a month plus about 1¢ per text, and only ever texts your number. <a href={SMS_GUIDE} target="_blank" rel="noreferrer">Setup guide ↗</a></p>
+          <input value={st.smsWorkerUrl ?? ""} placeholder="Text service URL (https://equipworthy-sms.<you>.workers.dev)" onChange={(e) => setS({ smsWorkerUrl: e.target.value.trim() || undefined })} aria-label="Text service URL" />
+          <input type="password" value={st.smsKey ?? ""} placeholder="App key (the APP_KEY you set)" onChange={(e) => setS({ smsKey: e.target.value.trim() || undefined })} aria-label="Text service app key" autoComplete="off" />
+          <label className="row gap small"><input type="checkbox" checked={st.smsEnabled} disabled={!st.smsWorkerUrl || !st.smsKey} onChange={(e) => setS({ smsEnabled: e.target.checked })} /> Text me Secret Lair reminders</label>
+          <div className="row gap">
+            <button className="btn small" disabled={!st.smsWorkerUrl || !st.smsKey} onClick={() => void run("Test text", () => testSms(st))}>Send test text</button>
+            <button className="btn small" disabled={!st.smsEnabled} onClick={() => void run("Schedule texts", () => syncChannels(true))}>Re-send schedule</button>
+          </div>
+        </div>
+      </div>
+      {msg && <p className="small">{msg}</p>}
     </div>
   );
 }

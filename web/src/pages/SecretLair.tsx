@@ -4,10 +4,10 @@ import { Empty, PageHeader, Thumb } from "../components/ui";
 import { usd } from "../lib/deckstats";
 import { applySnapshot } from "../lib/prices";
 import {
-  ACCOUNT_URL, CHECKLIST, STORE_URL, countdown, dropState, dropValue, etaText, isChecked, launchUrl, newDrop, queueEstimate, readiness,
+  ACCOUNT_URL, CHECKLIST, STORE_URL, countdown, dropState, dropValue, etaText, icsFor, isChecked, launchUrl, newDrop, queueEstimate, readiness,
 } from "../lib/secretlair";
 import { catalogStale, loadCatalog, tick } from "../lib/secretLairRunner";
-import { cacheCards, getState, update, useProfile } from "../lib/store";
+import { cacheCards, download, getState, update, useProfile } from "../lib/store";
 import { FINISHES, uid, type Finish, type Profile, type SecretLairDrop } from "../lib/types";
 
 const toLocalInput = (iso?: string) => {
@@ -54,7 +54,7 @@ export default function SecretLairPage() {
         <div className="card row gap">
           <span>🔔 Turn on notifications to get sale reminders and "you're almost through" alerts.</span>
           <button className="btn primary small" onClick={() => void Notification.requestPermission()}>Enable notifications</button>
-          <span className="muted small">Reminders only fire while EquipWorthy is open (a Home Screen app or a browser tab). For reminders when it's closed, use the iPhone app.</span>
+          <span className="muted small">Browser reminders only fire while EquipWorthy is open. For reminders when it's closed, turn on push alerts or texts in <Link to="/settings">Settings → Reminder delivery</Link>, or use 📅 Add to calendar.</span>
         </div>
       )}
 
@@ -119,6 +119,11 @@ function DropCard({ drop: d, profile: p }: { drop: SecretLairDrop; profile: Prof
           {state === "live" ? "Open the drop now ↗" : "Open drop page ↗"}
         </a>
         <label className="row gap small"><input type="checkbox" checked={d.marked} onChange={(e) => set({ marked: e.target.checked })} /> Remind me</label>
+        {d.saleStart && (
+          <button className="btn small" onClick={() => { const ics = icsFor(d); if (ics) download(`${d.name.replace(/[^\w]+/g, "-")}.ics`, ics, "text/calendar"); }} title="Adds the sale to your calendar with alerts 24h, 1h, 15m and 5m before and at launch">
+            📅 Add to calendar
+          </button>
+        )}
         <span className="pill">{Math.round(ready * 100)}% ready</span>
         {d.cardIds.length > 0 && (
           <span className="small">

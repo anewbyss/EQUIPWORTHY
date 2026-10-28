@@ -170,6 +170,14 @@ export interface Settings {
   /** Daily scan of popular Commander cards for market-wide movers and synergy picks. */
   marketScan: boolean;
   marketUniverse: number;
+  /** Push alerts through the free ntfy app (https://ntfy.sh). */
+  ntfyEnabled: boolean;
+  ntfyServer: string;
+  ntfyTopic?: string;
+  /** Text messages through your own EquipWorthy SMS worker (Twilio). */
+  smsEnabled: boolean;
+  smsWorkerUrl?: string;
+  smsKey?: string;
 }
 
 export interface Profile {
@@ -217,6 +225,7 @@ export interface SecretLairDrop {
   marked: boolean; // remind me / watch this drop
   checklist: Record<string, boolean>; // pre-sale readiness checks done
   remindersSent: string[]; // reminder keys already shown ("24h", "1h", "15m", "5m", "open")
+  pushScheduled?: string[]; // ntfy reminders already scheduled, as "key@saleStart" (shared across devices)
   queue?: QueueLog;
   owned?: { finish: Finish; quantity: number; paid?: number; boughtAt?: string };
   notes?: string;
@@ -347,6 +356,9 @@ export const defaultSettings = (): Settings => ({
   moverMinPrice: 1,
   marketScan: true,
   marketUniverse: 525,
+  ntfyEnabled: false,
+  ntfyServer: "https://ntfy.sh",
+  smsEnabled: false,
 });
 
 export const newProfile = (name: string): Profile => {

@@ -188,3 +188,67 @@ export function newDrop(name: string, fields: Partial<SecretLairDrop> = {}): Sec
   const now = new Date().toISOString();
   return { id: crypto.randomUUID(), name, cardIds: [], marked: true, checklist: {}, remindersSent: [], createdAt: now, updatedAt: now, ...fields };
 }
+
+// ---------------- reminder plan (shared by notifications, ntfy, texts, calendar) ----------------
+
+export interface PlannedReminder {
+  id: string; // stable per drop + reminder, e.g. "<dropId>-5m"
+  key: string;
+  at: string; // ISO time to deliver
+  title: string;
+  body: string;
+  url: string;
+}
+
+/** Every reminder still ahead for a followed drop with a sale time. */
+export function plannedReminders(d: SecretLairDrop, now = new Date()): PlannedReminder[] {
+  if (!d.marked || d.owned || !d.saleStart) return [];
+  const start = Date.parse(d.saleStart);
+  if (Number.isNaN(start)) return [];
+  return REMINDERS.map((r) => ({ r, at: start - r.before }))
+    .filter(({ at }) => at > now.getTime())
+    .map(({ r, at }) => ({
+      id: `${d.id}-${r.key}`,
+      key: r.key,
+      at: new Date(at).toISOString(),
+      title: r.key === "open" ? "Secret Lair drop is live" : "Secret Lair reminder",
+      body: r.text(d.name),
+      url: launchUrl(d),
+    }));
+}
+
+const icsDate = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+const icsText = (s: string) => s.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+
+/** A calendar event for the sale with alerts 24h, 1h, 15m and 5m before and at the start. */
+export function icsFor(d: SecretLairDrop, now = new Date()): string | null {
+  if (!d.saleStart) return null;
+  const start = d.saleStart;
+  const end = d.saleEnd && Date.parse(d.saleEnd) - Date.parse(start) < 6 * 3600_000 ? d.saleEnd : new Date(Date.parse(start) + 30 * 60_000).toISOString();
+  const url = launchUrl(d);
+  const alarms = REMINDERS.map((r) => [
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${icsText(r.text(d.name))}`,
+    `TRIGGER:-PT${Math.round(r.before / 60_000)}M`,
+    "END:VALARM",
+  ].join("\r\n"));
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//EquipWorthy//Secret Lair//EN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${d.id}@equipworthy`,
+    `DTSTAMP:${icsDate(now.toISOString())}`,
+    `DTSTART:${icsDate(start)}`,
+    `DTEND:${icsDate(end!)}`,
+    `SUMMARY:${icsText(`Secret Lair: ${d.name}`)}`,
+    `DESCRIPTION:${icsText(`Sale opens. Open the drop: ${url}${d.price != null ? `\nPrice: $${d.price.toFixed(2)}` : ""}`)}`,
+    `URL:${url}`,
+    ...alarms,
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}

@@ -3,7 +3,8 @@
 
 import * as scry from "./scryfall";
 import { dueQueueNotice, dueReminder, groupDrops, launchUrl, queueEstimate } from "./secretlair";
-import { getState, update } from "./store";
+import { getState, onSaved, update } from "./store";
+import { syncChannels } from "./channels";
 import type { CardSummary, SecretLairDrop } from "./types";
 
 function notify(title: string, body: string, url?: string) {
@@ -44,7 +45,9 @@ export function startSecretLair() {
   if (started) return;
   started = true;
   tick();
-  setInterval(() => tick(), 15_000);
+  void syncChannels();
+  onSaved(() => void syncChannels());
+  setInterval(() => (tick(), void syncChannels()), 15_000);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && tick());
 }
 

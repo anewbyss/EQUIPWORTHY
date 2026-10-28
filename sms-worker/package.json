@@ -1,0 +1,16 @@
+{
+  "name": "equipworthy-sms",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Sends EquipWorthy reminders as text messages through Twilio. Runs on Cloudflare Workers.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8",
+    "wrangler": "^3.95.0"
+  }
+}

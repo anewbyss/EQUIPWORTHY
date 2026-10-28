@@ -1,0 +1,23 @@
+# EquipWorthy text-message reminders (Cloudflare Worker).
+# Setup steps: see README.md in this folder.
+name = "equipworthy-sms"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Check for due reminders every minute.
+[triggers]
+crons = ["* * * * *"]
+
+# Scheduled reminders are stored here. Create it with:
+#   npx wrangler kv namespace create REMINDERS
+# then paste the id it prints below.
+[[kv_namespaces]]
+binding = "REMINDERS"
+id = "PASTE_YOUR_KV_NAMESPACE_ID_HERE"
+
+# Secrets (set with `npx wrangler secret put NAME`, never put them in this file):
+#   TWILIO_ACCOUNT_SID  - from the Twilio console
+#   TWILIO_AUTH_TOKEN   - from the Twilio console
+#   TWILIO_FROM         - your Twilio phone number, e.g. +15551234567
+#   TO_NUMBER           - YOUR phone number; texts only ever go here
+#   APP_KEY             - any long random string; paste the same one into EquipWorthy
