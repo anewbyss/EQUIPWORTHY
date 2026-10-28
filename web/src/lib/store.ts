@@ -143,7 +143,7 @@ export const onSaved = (fn: () => void) => {
  */
 export async function applySynced(merged: Omit<Profile, "cardCache">) {
   if (!state.profile || state.profile.id !== merged.id) return;
-  const next: Profile = migrate({ ...merged, cardCache: state.profile.cardCache, market: state.profile.market });
+  const next: Profile = migrate({ ...merged, cardCache: state.profile.cardCache, market: state.profile.market, secretLairCatalog: state.profile.secretLairCatalog });
   emit({ profile: next, dirty: true });
   await save(true);
 }

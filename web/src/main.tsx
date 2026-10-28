@@ -5,6 +5,7 @@ import App from "./App";
 import { init } from "./lib/store";
 import { startAutoSync } from "./lib/syncManager";
 import { startAutoRefresh } from "./lib/refresh";
+import { startSecretLair } from "./lib/secretLairRunner";
 import "./styles.css";
 
 const root = ReactDOM.createRoot(document.getElementById("root")!);
@@ -21,6 +22,7 @@ init()
   .then(() => {
     startAutoSync();
     startAutoRefresh();
+    startSecretLair();
     root.render(
       <React.StrictMode>
         <HashRouter>

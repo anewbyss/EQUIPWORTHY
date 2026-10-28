@@ -13,6 +13,7 @@ import DeckPage from "./pages/DeckPage";
 import WatchPage from "./pages/Watchlist";
 import TradePage from "./pages/Trade";
 import MarketPage from "./pages/Market";
+import SecretLairPage, { LaunchStrip } from "./pages/SecretLair";
 import LifeTrackerPage from "./pages/LifeTracker";
 import SetsPage from "./pages/Sets";
 import SettingsPage from "./pages/Settings";
@@ -47,6 +48,7 @@ export default function App() {
         <div className="profile-chip muted small">Profile: {s.profile?.name}</div>
       </nav>
       <main className="content">
+        <LaunchStrip />
         <Routes>
           <Route path="/" element={<LaunchPage />} />
           <Route path="/dashboard" element={<Dashboard />} />
@@ -61,6 +63,7 @@ export default function App() {
           <Route path="/watch" element={<WatchPage />} />
           <Route path="/trade" element={<TradePage />} />
           <Route path="/market" element={<MarketPage />} />
+          <Route path="/secret-lair" element={<SecretLairPage />} />
           <Route path="/life" element={<LifeTrackerPage />} />
           <Route path="/sets" element={<SetsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

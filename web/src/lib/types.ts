@@ -198,6 +198,51 @@ export interface Profile {
   game?: GameState;
   /** Market-wide price watch and synergy picks. Rebuilt on each device, not synced. */
   market?: MarketData;
+  /** Secret Lair drops you've marked or added (synced). */
+  secretLair?: SecretLairDrop[];
+  /** Recent Secret Lair cards from Scryfall, grouped into drops. Rebuilt on each device, not synced. */
+  secretLairCatalog?: SecretLairCatalog;
+}
+
+/** A Secret Lair drop you're following. */
+export interface SecretLairDrop {
+  id: string;
+  name: string;
+  saleStart?: string; // ISO date-time the sale opens
+  saleEnd?: string;
+  price?: number; // USD, non-foil
+  foilPrice?: number;
+  url?: string; // official product page
+  cardIds: string[];
+  marked: boolean; // remind me / watch this drop
+  checklist: Record<string, boolean>; // pre-sale readiness checks done
+  remindersSent: string[]; // reminder keys already shown ("24h", "1h", "15m", "5m", "open")
+  queue?: QueueLog;
+  owned?: { finish: Finish; quantity: number; paid?: number; boughtAt?: string };
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Your place in the official waiting room, as you type it in. */
+export interface QueueLog {
+  startedAt: string;
+  entries: [string, number][]; // [ISO time, position]
+  notified: string[]; // queue notifications already sent ("near", "soon")
+  admittedAt?: string;
+}
+
+export interface SecretLairGroup {
+  key: string;
+  name: string;
+  releasedAt: string;
+  cardIds: string[];
+}
+
+export interface SecretLairCatalog {
+  cards: Record<string, CardSummary>;
+  groups: SecretLairGroup[];
+  fetchedAt: string;
 }
 
 /** One card flagged as moving fast. */

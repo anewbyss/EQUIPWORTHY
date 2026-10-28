@@ -125,8 +125,9 @@ export function toSummary(c: RawCard): CardSummary {
   };
 }
 
-export async function search(query: string, opts: { unique?: "cards" | "prints"; order?: string; page?: number } = {}) {
+export async function search(query: string, opts: { unique?: "cards" | "prints"; order?: string; page?: number; dir?: "asc" | "desc" } = {}) {
   const p = new URLSearchParams({ q: query, unique: opts.unique ?? "cards", order: opts.order ?? "name" });
+  if (opts.dir) p.set("dir", opts.dir);
   if (opts.page) p.set("page", String(opts.page));
   try {
     const res = await get<List<RawCard>>(`/cards/search?${p}`);
