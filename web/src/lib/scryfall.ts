@@ -191,6 +191,7 @@ export interface SetInfo {
   released_at?: string;
   set_type: string;
   card_count: number;
+  digital?: boolean;
   icon_svg_uri?: string;
 }
 

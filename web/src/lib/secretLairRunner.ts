@@ -2,10 +2,10 @@
 // the background) and loads the drop catalog from Scryfall.
 
 import * as scry from "./scryfall";
-import { cheapestReprint, dueQueueNotice, dueReminder, groupDrops, launchUrl, queueEstimate } from "./secretlair";
+import { attachCards, buildCatalogGroups, cheapestReprint, dueQueueNotice, dueReminder, isSecretLairSet, launchUrl, parseCalendar, queueEstimate } from "./secretlair";
 import { getState, onSaved, update } from "./store";
 import { syncChannels } from "./channels";
-import type { CardSummary, ReprintPrice, SecretLairDrop } from "./types";
+import type { CalendarDrop, CardSummary, ReprintPrice, SecretLairDrop } from "./types";
 
 function notify(title: string, body: string, url?: string) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
@@ -51,23 +51,56 @@ export function startSecretLair() {
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && tick());
 }
 
-/** Load the newest Secret Lair cards (about 700) and group them into drops. */
+/** EquipWorthy's drop calendar: read from GitHub so edits show up without an app update. */
+export const CALENDAR_URL = "https://raw.githubusercontent.com/anewbyss/EQUIPWORTHY/main/web/public/secret-lair-drops.json";
+
+export async function loadCalendar(fetcher = fetch): Promise<CalendarDrop[]> {
+  for (const url of [CALENDAR_URL, `${import.meta.env.BASE_URL ?? "./"}secret-lair-drops.json`]) {
+    try {
+      const res = await fetcher(url, { cache: "no-cache" });
+      if (res.ok) return parseCalendar(await res.json());
+    } catch {
+      /* try the copy bundled with the app */
+    }
+  }
+  throw new Error("Couldn't load the drop calendar");
+}
+
+/**
+ * Load Secret Lair drops from every source: Scryfall's Secret Lair Drop set and other
+ * Secret Lair sets (Countdown Kits and the like), plus the EquipWorthy drop calendar.
+ */
 export async function loadCatalog(onStep?: (s: string) => void) {
+  onStep?.("Checking Secret Lair sets…");
+  const prev = getState().profile?.secretLairCatalog;
+  const sets = (await scry.sets())
+    .filter(isSecretLairSet)
+    .map((s) => ({ code: s.code, name: s.name, releasedAt: s.released_at }))
+    .sort((a, b) => (b.releasedAt ?? "").localeCompare(a.releasedAt ?? ""))
+    .slice(0, 25);
+  onStep?.("Loading the drop calendar…");
+  const calendar = await loadCalendar().catch(() => prev?.calendar ?? []);
+  const query = ["sld", ...sets.map((s) => s.code)].map((c) => `e:${c}`).join(" or ");
   const cards: CardSummary[] = [];
-  for (let page = 1; page <= 4; page++) {
-    onStep?.(`Loading Secret Lair cards (${page}/4)…`);
-    const r = await scry.search("e:sld", { unique: "prints", order: "released", dir: "desc", page });
+  for (let page = 1; page <= 5; page++) {
+    onStep?.(`Loading Secret Lair cards (${page}/5)…`);
+    const r = await scry.search(`(${query})`, { unique: "prints", order: "released", dir: "desc", page });
     cards.push(...r.cards);
     if (!r.hasMore) break;
   }
   const slim: Record<string, CardSummary> = {};
   for (const c of cards) slim[c.id] = { ...c, oracleText: undefined };
-  update((p) => ({ ...p, secretLairCatalog: { cards: slim, groups: groupDrops(cards), fetchedAt: new Date().toISOString(), reprints: p.secretLairCatalog?.reprints } }));
+  const groups = buildCatalogGroups(cards, sets, calendar);
+  update((p) => ({
+    ...p,
+    secretLair: p.secretLair && attachCards(p.secretLair, groups),
+    secretLairCatalog: { cards: slim, groups, fetchedAt: new Date().toISOString(), reprints: p.secretLairCatalog?.reprints, sets, calendar },
+  }));
 }
 
 export const catalogStale = () => {
   const c = getState().profile?.secretLairCatalog;
-  return !c || Date.now() - Date.parse(c.fetchedAt) > 3 * 86400_000;
+  return !c || !c.sets || Date.now() - Date.parse(c.fetchedAt) > 86400_000;
 };
 
 const REPRINT_TTL_MS = 2 * 86400_000;
@@ -79,6 +112,7 @@ const REPRINT_TTL_MS = 2 * 86400_000;
  */
 export async function loadReprints(cards: (CardSummary | undefined)[], force = false): Promise<number> {
   const known = getState().profile?.secretLairCatalog?.reprints ?? {};
+  const slSets = ["sld", ...(getState().profile?.secretLairCatalog?.sets ?? []).map((s) => s.code)];
   const ids = [...new Set(cards.map((c) => c?.oracleId).filter((x): x is string => !!x))].filter(
     (id) => force || !known[id] || Date.now() - Date.parse(known[id].fetchedAt) > REPRINT_TTL_MS,
   );
@@ -89,12 +123,12 @@ export async function loadReprints(cards: (CardSummary | undefined)[], force = f
     const byOracle: Record<string, CardSummary[]> = Object.fromEntries(batch.map((id) => [id, []]));
     let page = 1;
     for (;;) {
-      const r = await scry.search(`(${batch.map((id) => `oracleid:${id}`).join(" or ")}) -e:sld`, { unique: "prints", order: "usd", dir: "asc", page });
+      const r = await scry.search(`(${batch.map((id) => `oracleid:${id}`).join(" or ")}) ${slSets.map((c) => `-e:${c}`).join(" ")}`, { unique: "prints", order: "usd", dir: "asc", page });
       for (const c of r.cards) if (c.oracleId && byOracle[c.oracleId]) byOracle[c.oracleId].push(c);
       if (!r.hasMore || page >= 4) break;
       page++;
     }
-    for (const id of batch) found[id] = cheapestReprint(byOracle[id]);
+    for (const id of batch) found[id] = cheapestReprint(byOracle[id], new Date(), slSets);
   }
   update((p) => ({
     ...p,

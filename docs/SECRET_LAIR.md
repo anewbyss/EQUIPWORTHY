@@ -4,11 +4,15 @@ Code: `web/src/lib/secretlair.ts`, `secretLairRunner.ts`, `pages/SecretLair.tsx`
 
 ## What it does
 - **Follow drops:** add an announced drop by hand, or follow one from **Recent drops**. Recent drops are Scryfall's Secret Lair cards, grouped by release date and consecutive collector numbers, because Scryfall doesn't name drops. A followed drop's cards get daily prices, alerts and forecasts like any tracked card.
-- **Upcoming & announced:** drops appear as soon as Scryfall lists their previewed cards, usually within a day of the announcement, soonest release first, plus anything released in the last 30 days. Each one shows when it was announced and by whom, with an **Announcement** link (Scryfall's preview source for the cards) and a **Cards on Scryfall** link. Following a drop keeps its announcement link.
+- **Upcoming & announced:** drops from two sources, merged:
+  - **Scryfall:** the Secret Lair Drop set plus every other Secret Lair set (Countdown Kits and other products Scryfall lists separately). Drops appear once their cards are previewed. A new Secret Lair set shows up as soon as Scryfall creates it, even before its cards are listed. Each drop shows when it was announced and by whom, with an **Announcement** link (Scryfall's preview source).
+  - **EquipWorthy drop calendar** ([web/public/secret-lair-drops.json](../web/public/secret-lair-drops.json)): announced drops with sale time, price, card count, product and announcement links, and notes. Both apps read it from the `main` branch on GitHub, so an edit there shows up without an app update. To add a drop, edit the file on GitHub and add an entry like the one there. `saleStart` is UTC: 9 a.m. Pacific is `16:00Z` during daylight time and `17:00Z` in standard time. Use `releaseDate` (YYYY-MM-DD) and `"tentative": true` when the time isn't confirmed. A calendar entry merges into the matching Scryfall set, by `set` code or by name, once that set exists.
+  - The tab lists everything not yet released plus the last 30 days of releases. **Follow** copies the sale time, price and links into your drop and turns reminders on when the sale time is known. A drop followed before Scryfall lists its cards picks them up automatically later.
+  - **Sort:** soonest or newest release, recently announced, best deal vs price, card value or price. Following sorts by sale time, recently added, least ready or name; All drops has the same options as Upcoming minus "best deal". Each list remembers its choice on the device.
 - **Pre-drop price check** on every upcoming and followed drop, non-foil or foil:
   - the drop's price (its real price once you enter it; until then the usual $29.99, or $39.99 foil)
   - **Secret Lair market:** TCGplayer market or pre-order prices for the Secret Lair versions, once they exist
-  - **Cheapest elsewhere:** the cheapest copy of each card in any other set (cards with no other printing are marked *new card*)
+  - **Cheapest elsewhere:** the cheapest copy of each card in any set that isn't a Secret Lair set (cards with no other printing are marked *new card*)
   - a one-line read such as "Secret Lair copies trade $10.01 above the price; the cards cost $19.99 less in other printings".
   - A **past drops** line gives context: the median value of drops released 2 months to 2 years ago, as a share of the usual price.
   - Reprint prices are looked up in batched Scryfall searches and refreshed every 2 days, or on demand with **Re-check**.

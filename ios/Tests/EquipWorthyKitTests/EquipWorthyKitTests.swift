@@ -484,3 +484,72 @@ final class UpcomingDropTests: XCTestCase {
         XCTAssertNil(SecretLair.pastDropTrend(SecretLairCatalog(cards: cards, groups: Array(groups.prefix(2)), fetchedAt: ""), now: now))
     }
 }
+
+final class DropSourceTests: XCTestCase {
+    func card(_ id: String, _ cn: String, _ rel: String, set: String = "sld", usd: Double? = nil) -> CardSummary {
+        CardSummary(id: id, oracleId: "o-\(id)", name: "Card \(id)", set: set, collectorNumber: cn, releasedAt: rel, prices: Prices(usd: usd))
+    }
+
+    let calendarJSON = """
+    {"drops": [
+      {"id": "marvel-kit", "name": "Secret Lair Countdown Kit: Marvel's History of Heroes", "saleStart": "2026-11-02T17:00:00Z", "price": 199.99, "cards": 30, "announcementUrl": "https://magic.wizards.com/en/news/x"},
+      {"id": "doom", "name": "Doomsdrop", "releaseDate": "2026-11-16", "tentative": true, "url": "javascript:alert(1)"},
+      {"id": "bad"},
+      {"id": "nodate", "name": "No date"}
+    ]}
+    """
+
+    func testCalendarAndSets() {
+        let cal = SecretLair.parseCalendar(Data(calendarJSON.utf8))
+        XCTAssertEqual(cal.map(\.id), ["marvel-kit", "doom"])
+        XCTAssertEqual(cal[0].price, 199.99)
+        XCTAssertEqual(cal[0].cards, 30)
+        XCTAssertNil(cal[1].url)
+        XCTAssertEqual(cal[1].tentative, true)
+        XCTAssertTrue(SecretLair.parseCalendar(Data("nope".utf8)).isEmpty)
+        XCTAssertTrue(SecretLair.isSecretLairSet(code: "slc", name: "Secret Lair 30th Anniversary Countdown Kit"))
+        XCTAssertFalse(SecretLair.isSecretLairSet(code: "sld", name: "Secret Lair Drop"))
+        XCTAssertFalse(SecretLair.isSecretLairSet(code: "pslp", name: "Secret Lair Showdown"))
+        XCTAssertEqual(SecretLair.nameKey("Secret Lair Countdown Kit: Marvel's History of Heroes"), "marvel s history of heroes")
+    }
+
+    func testMergeSources() {
+        let cards = [card("a", "100", "2026-10-01"), card("k1", "1", "2026-11-02", set: "slm"), card("k2", "2", "2026-11-02", set: "slm")]
+        let sets = [SecretLairSet(code: "slm", name: "Secret Lair Countdown Kit: Marvel's History of Heroes", releasedAt: "2026-11-02"),
+                    SecretLairSet(code: "sle", name: "Secret Lair Empty Kit", releasedAt: "2026-12-01")]
+        let g = SecretLair.buildCatalogGroups(cards, sets: sets, calendar: SecretLair.parseCalendar(Data(calendarJSON.utf8)))
+        let kit = g.first { $0.key == "set:slm" }!
+        XCTAssertEqual(kit.cardIds, ["k1", "k2"])
+        XCTAssertEqual(kit.price, 199.99)
+        XCTAssertEqual(kit.sources, ["scryfall", "calendar"])
+        XCTAssertEqual(kit.announcementUrl, "https://magic.wizards.com/en/news/x")
+        XCTAssertEqual(g.map(\.key), ["set:sle", "cal:doom", "set:slm", "2026-10-01#100"])
+
+        var d = SecretLairDrop(name: "Secret Lair Countdown Kit: Marvel's History of Heroes")
+        d.cardIds = []
+        XCTAssertEqual(SecretLair.attachCards([d], groups: g)?.first?.cardIds, ["k1", "k2"])
+        XCTAssertNil(SecretLair.attachCards([SecretLairDrop(name: "Something else")], groups: g))
+        XCTAssertTrue(SecretLair.isFollowed([d], kit))
+        XCTAssertEqual(SecretLair.cheapestReprint([card("k", "1", "", set: "slm", usd: 1)], secretLairSets: ["sld", "slm"]).printings, 0)
+    }
+
+    func testSorting() {
+        let cards = ["a": card("a", "1", "", usd: 50), "b": card("b", "2", "", usd: 10)]
+        var x = SecretLairGroup(key: "x", name: "Zed", releasedAt: "2026-11-20", cardIds: ["b"]); x.announcedAt = "2026-10-01"
+        var y = SecretLairGroup(key: "y", name: "Alpha", releasedAt: "2026-11-05", cardIds: ["a"]); y.announcedAt = "2026-10-20"; y.price = 39.99
+        var z = SecretLairGroup(key: "z", name: "Mid", releasedAt: "2026-11-10", cardIds: []); z.saleStart = "2026-11-02T17:00:00Z"; z.price = 199.99
+        let order: (SecretLair.GroupSort) -> [String] = { SecretLair.sortGroups([x, y, z], by: $0, cards: cards).map(\.key) }
+        XCTAssertEqual(order(.soonest), ["z", "y", "x"])
+        XCTAssertEqual(order(.latest), ["x", "y", "z"])
+        XCTAssertEqual(order(.name), ["y", "z", "x"])
+        XCTAssertEqual(order(.value), ["y", "x", "z"])
+        XCTAssertEqual(order(.price), ["y", "z", "x"])
+        XCTAssertEqual(order(.announced), ["y", "x", "z"])
+        XCTAssertEqual(order(.deal), ["y", "x", "z"])
+        var d1 = SecretLairDrop(name: "B"); d1.saleStart = "2026-12-01T00:00:00Z"; d1.createdAt = "2026-10-01"
+        var d2 = SecretLairDrop(name: "A"); d2.saleStart = "2026-11-01T00:00:00Z"; d2.createdAt = "2026-10-05"; d2.checklist = ["account": true]
+        XCTAssertEqual(SecretLair.sortDrops([d1, d2], by: .sale).map(\.name), ["A", "B"])
+        XCTAssertEqual(SecretLair.sortDrops([d1, d2], by: .added).map(\.name), ["A", "B"])
+        XCTAssertEqual(SecretLair.sortDrops([d1, d2], by: .ready).map(\.name), ["B", "A"])
+    }
+}

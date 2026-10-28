@@ -6,24 +6,43 @@ import EquipWorthyKit
 /// Loading the Secret Lair catalog and reprint prices into the profile.
 @MainActor
 enum SecretLairData {
+    /// Load drops from every source: Scryfall's Secret Lair sets and the EquipWorthy drop calendar.
     static func loadCatalog(_ store: ProfileStore) async throws {
+        let prev = store.profile.secretLairCatalog
+        let all = try await Scryfall.shared.sets()
+        let sets = all.filter { SecretLair.isSecretLairSet(code: $0.code, name: $0.name, digital: $0.digital ?? false) }
+            .map { SecretLairSet(code: $0.code, name: $0.name, releasedAt: $0.released_at) }
+            .sorted { ($0.releasedAt ?? "") > ($1.releasedAt ?? "") }
+            .prefix(25)
+        let calendar = (try? await loadCalendar()) ?? prev?.calendar ?? []
+        let query = "(" + (["sld"] + sets.map(\.code)).map { "e:\($0)" }.joined(separator: " or ") + ")"
         var cards: [CardSummary] = []
-        for page in 1...4 {
-            let r = try await Scryfall.shared.search("e:sld", unique: "prints", order: "released", dir: "desc", page: page)
+        for page in 1...5 {
+            let r = try await Scryfall.shared.search(query, unique: "prints", order: "released", dir: "desc", page: page)
             cards += r.cards
             if !r.hasMore { break }
         }
         var slim: [String: CardSummary] = [:]
         for c in cards { var x = c; x.oracleText = nil; slim[c.id] = x }
-        let groups = SecretLair.groupDrops(cards)
+        let groups = SecretLair.buildCatalogGroups(cards, sets: Array(sets), calendar: calendar)
         store.mutate { p in
-            p.secretLairCatalog = SecretLairCatalog(cards: slim, groups: groups, fetchedAt: isoNow(), reprints: p.secretLairCatalog?.reprints)
+            if let drops = p.secretLair, let attached = SecretLair.attachCards(drops, groups: groups) { p.secretLair = attached }
+            p.secretLairCatalog = SecretLairCatalog(cards: slim, groups: groups, fetchedAt: isoNow(), reprints: p.secretLairCatalog?.reprints,
+                                                    sets: Array(sets), calendar: calendar)
         }
     }
 
+    static func loadCalendar() async throws -> [CalendarDrop] {
+        var req = URLRequest(url: SecretLair.calendarURL)
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, res) = try await URLSession.shared.data(for: req)
+        guard (res as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return SecretLair.parseCalendar(data)
+    }
+
     static func catalogStale(_ store: ProfileStore) -> Bool {
-        guard let t = store.profile.secretLairCatalog.flatMap({ parseISO($0.fetchedAt) }) else { return true }
-        return Date().timeIntervalSince(t) > 3 * 86400
+        guard let cat = store.profile.secretLairCatalog, cat.sets != nil, let t = parseISO(cat.fetchedAt) else { return true }
+        return Date().timeIntervalSince(t) > 86400
     }
 
     /// Fetch cheapest-elsewhere prices for cards not checked in the last two days.
@@ -31,7 +50,8 @@ enum SecretLairData {
         let known = store.profile.secretLairCatalog?.reprints ?? [:]
         let ids = force ? Array(Set(cards.compactMap { $0?.oracleId })) : SecretLair.staleReprintIds(cards, known: known)
         guard !ids.isEmpty else { return }
-        let found = try await SecretLair.fetchReprints(ids)
+        let slSets = ["sld"] + (store.profile.secretLairCatalog?.sets ?? []).map(\.code)
+        let found = try await SecretLair.fetchReprints(ids, secretLairSets: slSets)
         store.mutate { p in
             var cat = p.secretLairCatalog ?? SecretLairCatalog(cards: [:], groups: [], fetchedAt: isoNow(Date(timeIntervalSince1970: 0)))
             var all = cat.reprints ?? [:]
@@ -44,9 +64,14 @@ enum SecretLairData {
     static func follow(_ store: ProfileStore, _ g: SecretLairGroup) {
         let cat = store.profile.secretLairCatalog
         store.cache(g.cardIds.compactMap { cat?.cards[$0] })
-        guard !(store.profile.secretLair ?? []).contains(where: { $0.cardIds == g.cardIds }) else { return }
-        var d = SecretLairDrop(name: g.name, cardIds: g.cardIds, marked: false)
+        guard !SecretLair.isFollowed(store.profile.secretLair ?? [], g) else { return }
+        var d = SecretLairDrop(name: g.name, cardIds: g.cardIds, marked: g.saleStart != nil)
         d.announcementUrl = g.announcementUrl
+        d.saleStart = g.saleStart
+        d.price = g.price
+        d.foilPrice = g.foilPrice
+        d.url = g.url
+        d.notes = g.notes
         store.mutate { $0.secretLair = [d] + ($0.secretLair ?? []) }
     }
 }
@@ -124,11 +149,19 @@ struct SecretLairUpcomingSection: View {
     @EnvironmentObject var store: ProfileStore
     @State private var loading = false
     @State private var error: String?
+    @AppStorage("ew.sl-sort.upcoming") private var sort = SecretLair.GroupSort.soonest.rawValue
+
+    private var sortBy: SecretLair.GroupSort { SecretLair.GroupSort(rawValue: sort) ?? .soonest }
 
     var body: some View {
         let cat = store.profile.secretLairCatalog
-        let groups = cat.map { SecretLair.upcomingGroups($0.groups) } ?? []
+        let groups = cat.map { c in
+            SecretLair.sortGroups(SecretLair.upcomingGroups(c.groups), by: sortBy, cards: c.cards, reprints: c.reprints ?? [:])
+        } ?? []
         Section {
+            Picker("Sort", selection: $sort) {
+                ForEach(SecretLair.GroupSort.allCases, id: \.rawValue) { Text($0.rawValue).tag($0.rawValue) }
+            }
             Button(loading ? "Loading Secret Lair cards…" : "Reload") { Task { await load(force: true) } }.disabled(loading)
             if let error { Text(error).foregroundStyle(Theme.down).font(.caption) }
             if let cat, let t = SecretLair.pastDropTrend(cat) {
@@ -136,7 +169,7 @@ struct SecretLairUpcomingSection: View {
                     .font(.caption).foregroundStyle(t.median >= 1 ? Theme.up : Theme.down)
             }
         } footer: {
-            Text("Drops show up here once their cards are previewed, with a link to the announcement. Prices use the usual \(SecretLair.typicalPrice.usd) (foil \(SecretLair.typicalFoilPrice.usd)) until you follow a drop and enter its real price.")
+            Text("Drops from Scryfall (every Secret Lair set, once cards are previewed) and the EquipWorthy drop calendar, which has sale times and prices for announced drops. Prices use the usual \(SecretLair.typicalPrice.usd) (foil \(SecretLair.typicalFoilPrice.usd)) until you follow a drop and enter its real price.")
         }
         if let cat {
             if groups.isEmpty { Text("No announced or recent drops found.").foregroundStyle(.secondary) }
@@ -173,33 +206,54 @@ struct UpcomingGroupRow: View {
     var body: some View {
         let g = group
         let upcoming = SecretLair.isUpcoming(g)
-        let followed = (store.profile.secretLair ?? []).contains { $0.cardIds == g.cardIds }
+        let followed = SecretLair.isFollowed(store.profile.secretLair ?? [], g)
         VStack(alignment: .leading, spacing: 4) {
             Text(g.name).bold()
             Text(detailLine(g, upcoming: upcoming)).font(.caption).foregroundStyle(.secondary)
-            ScrollView(.horizontal) {
-                HStack { ForEach(g.cardIds, id: \.self) { id in CardImage(url: cat.cards[id]?.imageSmall, width: 50) } }
+            if let n = g.notes { Text(n).font(.caption) }
+            Text("From " + (g.sources ?? ["scryfall"]).map { $0 == "calendar" ? "EquipWorthy calendar" : "Scryfall" }.joined(separator: " + "))
+                .font(.caption2).foregroundStyle(.secondary)
+            if !g.cardIds.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack { ForEach(g.cardIds, id: \.self) { id in CardImage(url: cat.cards[id]?.imageSmall, width: 50) } }
+                }
             }
         }
         if let u = SecretLair.announcementURL(g.announcementUrl) {
             Link(destination: u) { Label("Announcement", systemImage: "megaphone") }
         }
-        Link(destination: SecretLair.scryfallURL(g, cards: cat.cards)) { Label("Cards on Scryfall", systemImage: "rectangle.stack") }
+        if let u = SecretLair.announcementURL(g.url) {
+            Link(destination: u) { Label("Product page", systemImage: "cart") }
+        }
+        if !g.cardIds.isEmpty {
+            Link(destination: SecretLair.scryfallURL(g, cards: cat.cards)) { Label("Cards on Scryfall", systemImage: "rectangle.stack") }
+        }
         if followed {
             Label("Following", systemImage: "checkmark.circle").foregroundStyle(Theme.up)
         } else {
-            Button { SecretLairData.follow(store, g) } label: { Label("Follow", systemImage: "bell") }
+            Button { SecretLairData.follow(store, g) } label: { Label(g.saleStart != nil ? "Follow & remind me" : "Follow", systemImage: "bell") }
         }
-        PriceCompareView(cardIds: g.cardIds, cards: cat.cards, showTable: expanded)
-        Button(expanded ? "Hide card prices" : "Compare card prices") { expanded.toggle() }.font(.callout)
+        if g.cardIds.isEmpty {
+            Text("Cards aren't on Scryfall yet, so there's no price check. It appears here once they're listed.").font(.caption).foregroundStyle(.secondary)
+        } else {
+            PriceCompareView(cardIds: g.cardIds, cards: cat.cards, price: g.price, foilPrice: g.foilPrice, showTable: expanded)
+            Button(expanded ? "Hide card prices" : "Compare card prices") { expanded.toggle() }.font(.callout)
+        }
     }
 
     private func detailLine(_ g: SecretLairGroup, upcoming: Bool) -> String {
         var parts: [String] = []
         if upcoming { parts.append("Upcoming") }
+        if g.tentative == true { parts.append("date not confirmed") }
+        if let s = g.saleStart.flatMap(parseISO) {
+            parts.append("On sale " + s.formatted(date: .abbreviated, time: .shortened))
+        } else {
+            parts.append((upcoming ? "Release " : "Released ") + g.releasedAt)
+        }
+        if let p = g.price { parts.append(p.usd) }
+        let count = g.cardIds.isEmpty ? (g.cardCount ?? 0) : g.cardIds.count
+        if count > 0 { parts.append("\(count) card\(count == 1 ? "" : "s")") }
         if let a = g.announcedAt { parts.append("Announced \(a)" + (g.announcementSource.map { " by \($0)" } ?? "")) }
-        parts.append((upcoming ? "Release " : "Released ") + g.releasedAt)
-        parts.append("\(g.cardIds.count) card\(g.cardIds.count == 1 ? "" : "s")")
         return parts.joined(separator: " · ")
     }
 }

@@ -251,6 +251,31 @@ export interface SecretLairGroup {
   announcedAt?: string; // YYYY-MM-DD the first card was previewed
   announcementUrl?: string;
   announcementSource?: string;
+  sources?: ("scryfall" | "calendar")[]; // where this drop was found
+  set?: string; // Scryfall set code when the drop is its own set (e.g. Countdown Kits)
+  saleStart?: string; // from the drop calendar
+  price?: number;
+  foilPrice?: number;
+  url?: string; // product page
+  notes?: string;
+  tentative?: boolean; // date not confirmed
+  cardCount?: number; // announced number of cards, when Scryfall doesn't list them yet
+}
+
+/** One entry in EquipWorthy's Secret Lair drop calendar (web/public/secret-lair-drops.json). */
+export interface CalendarDrop {
+  id: string;
+  name: string;
+  saleStart?: string;
+  releaseDate?: string; // YYYY-MM-DD when there's no exact sale time
+  price?: number;
+  foilPrice?: number;
+  url?: string;
+  announcementUrl?: string;
+  set?: string; // Scryfall set code, if known
+  cards?: number;
+  notes?: string;
+  tentative?: boolean;
 }
 
 /** Cheapest copies of a card outside Secret Lair, for pre-drop price comparisons. */
@@ -267,6 +292,8 @@ export interface SecretLairCatalog {
   groups: SecretLairGroup[];
   fetchedAt: string;
   reprints?: Record<string, ReprintPrice>; // by oracle id
+  sets?: { code: string; name: string; releasedAt?: string }[]; // Secret Lair sets on Scryfall besides "sld"
+  calendar?: CalendarDrop[];
 }
 
 /** One card flagged as moving fast. */
