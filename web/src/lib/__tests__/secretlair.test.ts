@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { countdown, dropState, dropValue, dueQueueNotice, dueReminder, etaText, groupDrops, launchUrl, newDrop, queueEstimate, STORE_URL } from "../secretlair";
+import {
+  cheapestReprint, compareDrop, compareSummary, countdown, dropState, dropValue, dueQueueNotice, dueReminder, etaText, groupDrops, isUpcoming, launchUrl, newDrop,
+  pastDropTrend, queueEstimate, STORE_URL, upcomingGroups,
+} from "../secretlair";
 import { mergeProfiles, forSync } from "../sync";
 import { trackedIds } from "../prices";
 import { newProfile, type CardSummary, type QueueLog } from "../types";
@@ -81,5 +84,65 @@ describe("catalog and value", () => {
     expect("secretLairCatalog" in s).toBe(false);
     const remote = { ...s, secretLair: [...s.secretLair!, newDrop("F")], updatedAt: "2099-01-01" };
     expect(mergeProfiles(s, s, remote).secretLair).toHaveLength(3);
+  });
+});
+
+describe("upcoming drops and price comparison", () => {
+  const card = (id: string, cn: string, rel: string, extra: Partial<CardSummary> = {}): CardSummary => ({
+    id, oracleId: `o-${id}`, name: `Card ${id}`, set: "sld", setName: "Secret Lair Drop", collectorNumber: cn, rarity: "rare", typeLine: "Creature", cmc: 1, colors: [], colorIdentity: [],
+    releasedAt: rel, reserved: false, reprint: true, legalities: {}, prices: {}, finishes: ["nonfoil", "foil"], fetchedAt: "", ...extra,
+  });
+  const NOW = new Date("2026-10-28T12:00:00Z");
+
+  it("picks up the announcement from card previews", () => {
+    const g = groupDrops([
+      card("a", "200", "2026-11-20", { preview: { source: "Wizards", url: "https://magic.wizards.com/en/news/sl", at: "2026-10-20" } }),
+      card("b", "201", "2026-11-20", { preview: { at: "2026-10-19" } }),
+    ]);
+    expect(g[0]).toMatchObject({ announcedAt: "2026-10-19", announcementUrl: "https://magic.wizards.com/en/news/sl", announcementSource: "Wizards" });
+  });
+
+  it("lists announced and recent drops soonest first", () => {
+    const groups = groupDrops([card("old", "1", "2026-01-01"), card("recent", "50", "2026-10-15"), card("next", "90", "2026-12-01"), card("soon", "80", "2026-11-05")]);
+    expect(upcomingGroups(groups, NOW).map((g) => g.cardIds[0])).toEqual(["recent", "soon", "next"]);
+    expect(isUpcoming({ releasedAt: "2026-11-05" }, NOW)).toBe(true);
+    expect(isUpcoming({ releasedAt: "2026-10-15" }, NOW)).toBe(false);
+  });
+
+  it("finds the cheapest copies outside Secret Lair", () => {
+    const r = cheapestReprint([
+      card("x", "1", "", { set: "sld", prices: { usd: 1 } }),
+      card("y", "1", "", { set: "m21", setName: "Core 2021", prices: { usd: 4, usdFoil: 9 } }),
+      card("z", "1", "", { set: "cmr", setName: "Commander Legends", prices: { usd: 2.5 } }),
+    ], NOW);
+    expect(r).toMatchObject({ usd: 2.5, usdFoil: 9, setName: "Commander Legends", printings: 2 });
+    expect(cheapestReprint([], NOW).printings).toBe(0);
+  });
+
+  it("compares the drop price with the Secret Lair market and other printings", () => {
+    const cards = { a: card("a", "1", "", { prices: { usd: 20 } }), b: card("b", "2", "", { prices: { usd: 15 } }), c: card("c", "3", "", { prices: { usd: 5 } }) };
+    const reprints = { "o-a": { usd: 8, printings: 3, setName: "Set A", fetchedAt: "" }, "o-b": { usd: 2, printings: 1, fetchedAt: "" }, "o-c": { printings: 0, fetchedAt: "" } };
+    const c = compareDrop(["a", "b", "c"], cards, reprints);
+    expect(c).toMatchObject({ price: 29.99, priceIsTypical: true, sldTotal: 40, sldPriced: 3, reprintTotal: 10, reprintPriced: 2, newCards: 1, premium: 19.99, marketGap: 10.01 });
+    expect(compareSummary(c)).toBe("Secret Lair copies trade $10.01 above the price; the cards cost $19.99 less in other printings (2 of 3 cards); 1 new card with no other printing.");
+    const f = compareDrop(["a"], cards, reprints, { finish: "foil", price: 5 });
+    expect(f).toMatchObject({ price: 5, priceIsTypical: false, premium: -3 });
+    expect(compareSummary(compareDrop(["a"], { a: card("a", "1", "") }, {}))).toMatch(/No prices yet/);
+  });
+
+  it("measures how past drops held value", () => {
+    const cards: Record<string, CardSummary> = {};
+    const groups = [];
+    for (let i = 0; i < 3; i++) {
+      const a = card(`p${i}a`, `${i * 10}`, "2026-03-01", { prices: { usd: 10 + i * 10 } });
+      const b = card(`p${i}b`, `${i * 10 + 1}`, "2026-03-01", { prices: { usd: 10 } });
+      cards[a.id] = a;
+      cards[b.id] = b;
+      groups.push({ key: `g${i}`, name: "", releasedAt: "2026-03-01", cardIds: [a.id, b.id] });
+    }
+    const t = pastDropTrend({ cards, groups, fetchedAt: "" }, NOW)!;
+    expect(t.drops).toBe(3);
+    expect(t.median).toBeCloseTo(30 / 29.99, 3);
+    expect(pastDropTrend({ cards, groups: groups.slice(0, 2), fetchedAt: "" }, NOW)).toBeNull();
   });
 });

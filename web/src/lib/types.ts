@@ -38,6 +38,7 @@ export interface CardSummary {
   oracleText?: string;
   printsCount?: number; // number of printings with this oracle id, when known
   keywords?: string[]; // Scryfall keyword abilities, e.g. "Proliferate"
+  preview?: { source?: string; url?: string; at?: string }; // where the card was first shown (announcement)
   fetchedAt: string; // ISO timestamp
 }
 
@@ -221,6 +222,7 @@ export interface SecretLairDrop {
   price?: number; // USD, non-foil
   foilPrice?: number;
   url?: string; // official product page
+  announcementUrl?: string; // where the drop was announced or previewed
   cardIds: string[];
   marked: boolean; // remind me / watch this drop
   checklist: Record<string, boolean>; // pre-sale readiness checks done
@@ -246,12 +248,25 @@ export interface SecretLairGroup {
   name: string;
   releasedAt: string;
   cardIds: string[];
+  announcedAt?: string; // YYYY-MM-DD the first card was previewed
+  announcementUrl?: string;
+  announcementSource?: string;
+}
+
+/** Cheapest copies of a card outside Secret Lair, for pre-drop price comparisons. */
+export interface ReprintPrice {
+  usd?: number;
+  usdFoil?: number;
+  setName?: string; // printing with the cheapest non-foil price
+  printings: number; // non-Secret Lair paper printings
+  fetchedAt: string;
 }
 
 export interface SecretLairCatalog {
   cards: Record<string, CardSummary>;
   groups: SecretLairGroup[];
   fetchedAt: string;
+  reprints?: Record<string, ReprintPrice>; // by oracle id
 }
 
 /** One card flagged as moving fast. */

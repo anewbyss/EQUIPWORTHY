@@ -33,6 +33,8 @@
 
 ## 1c. Secret Lair ([SECRET_LAIR.md](SECRET_LAIR.md))
 - ✅ Follow drops by hand or from a Scryfall-based catalog of recent drops, with sale time, price and the official product link
+- ✅ Upcoming & announced drops with announcement links, from Scryfall previews
+- ✅ Pre-drop price check: drop price vs Secret Lair pre-order market vs cheapest copies in other sets, plus how past drops held value
 - ✅ Reminders 24h / 1h / 15m / 5m before and at launch; tapping opens the drop page (iOS: works with the app closed)
 - ✅ Reminder delivery with the app closed: push alerts (ntfy), text messages (your own Twilio service) and calendar events with alerts
 - ✅ Launch strip with an "Open the drop" button from 15 minutes before to 2 hours after a sale opens

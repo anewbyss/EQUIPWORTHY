@@ -43,6 +43,13 @@ public struct Prices: Codable, Hashable, Sendable {
     }
 }
 
+public struct CardPreview: Codable, Hashable, Sendable {
+    public var source: String?
+    public var url: String?
+    public var at: String?
+    public init(source: String? = nil, url: String? = nil, at: String? = nil) { self.source = source; self.url = url; self.at = at }
+}
+
 public struct CardSummary: Codable, Hashable, Identifiable, Sendable {
     public var id: String
     public var oracleId: String?
@@ -71,6 +78,8 @@ public struct CardSummary: Codable, Hashable, Identifiable, Sendable {
     public var oracleText: String?
     public var printsCount: Int?
     public var keywords: [String]?
+    /// Where the card was first shown (announcement page), from Scryfall.
+    public var preview: CardPreview?
     public var fetchedAt: String
 
     public init(id: String, oracleId: String? = nil, name: String, set: String, setName: String = "", collectorNumber: String,
@@ -79,14 +88,14 @@ public struct CardSummary: Codable, Hashable, Identifiable, Sendable {
                 releasedAt: String = "2000-01-01", reserved: Bool = false, reprint: Bool = false, edhrecRank: Int? = nil,
                 legalities: [String: String] = [:], prices: Prices = Prices(), finishes: [Finish] = [.nonfoil],
                 tcgplayerUrl: String? = nil, edhrecUrl: String? = nil, scryfallUrl: String? = nil, oracleText: String? = nil,
-                printsCount: Int? = nil, keywords: [String]? = nil, fetchedAt: String = "") {
+                printsCount: Int? = nil, keywords: [String]? = nil, preview: CardPreview? = nil, fetchedAt: String = "") {
         self.id = id; self.oracleId = oracleId; self.name = name; self.set = set; self.setName = setName
         self.collectorNumber = collectorNumber; self.rarity = rarity; self.typeLine = typeLine; self.manaCost = manaCost
         self.cmc = cmc; self.colors = colors; self.colorIdentity = colorIdentity; self.image = image; self.imageSmall = imageSmall
         self.releasedAt = releasedAt; self.reserved = reserved; self.reprint = reprint; self.edhrecRank = edhrecRank
         self.legalities = legalities; self.prices = prices; self.finishes = finishes; self.tcgplayerUrl = tcgplayerUrl
         self.edhrecUrl = edhrecUrl; self.scryfallUrl = scryfallUrl; self.oracleText = oracleText
-        self.printsCount = printsCount; self.keywords = keywords; self.fetchedAt = fetchedAt
+        self.printsCount = printsCount; self.keywords = keywords; self.preview = preview; self.fetchedAt = fetchedAt
     }
 
     public func price(_ finish: Finish) -> Double? {

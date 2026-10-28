@@ -68,6 +68,8 @@ struct RawCard: Decodable {
     var scryfall_uri: String?
     var oracle_text: String?
     var keywords: [String]?
+    struct Preview: Decodable { var source: String?; var source_uri: String?; var previewed_at: String? }
+    var preview: Preview?
 
     var summary: CardSummary {
         let face = card_faces?.first
@@ -83,7 +85,11 @@ struct RawCard: Decodable {
             finishes: (finishes ?? ["nonfoil"]).compactMap(Finish.init(rawValue:)),
             tcgplayerUrl: purchase_uris?.tcgplayer, edhrecUrl: related_uris?.edhrec, scryfallUrl: scryfall_uri,
             oracleText: oracle_text ?? card_faces?.compactMap(\.oracle_text).joined(separator: "\n//\n"),
-            keywords: keywords, fetchedAt: isoNow())
+            keywords: keywords,
+            preview: preview.map { p in
+                CardPreview(source: p.source, url: p.source_uri.flatMap { $0.lowercased().hasPrefix("https://") ? $0 : nil }, at: p.previewed_at)
+            },
+            fetchedAt: isoNow())
     }
 }
 

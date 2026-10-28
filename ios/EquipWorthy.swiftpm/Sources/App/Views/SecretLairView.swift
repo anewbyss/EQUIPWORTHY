@@ -6,7 +6,7 @@ import EquipWorthyKit
 @MainActor
 struct SecretLairView: View {
     @EnvironmentObject var store: ProfileStore
-    enum Tab: String, CaseIterable { case following = "Following", catalog = "Recent drops" }
+    enum Tab: String, CaseIterable { case following = "Following", upcoming = "Upcoming", catalog = "All drops" }
     @State private var tab = Tab.following
     @State private var newName = ""
 
@@ -35,7 +35,7 @@ struct SecretLairView: View {
                     Text("Add a drop when Wizards announces it, then set the sale time and paste the product link. Reminders arrive 24 hours, 1 hour, 15 minutes and 5 minutes before, then at launch. Tap one to open the drop.")
                 }
                 if drops.isEmpty {
-                    Text("No drops yet. Add one above or follow one from Recent drops.").foregroundStyle(.secondary)
+                    Text("No drops yet. Add one above or follow one from Upcoming.").foregroundStyle(.secondary)
                 }
                 ForEach(drops) { d in
                     NavigationLink { DropDetailView(dropId: d.id) } label: { DropRow(drop: d) }
@@ -44,6 +44,8 @@ struct SecretLairView: View {
                     let ids = Set(idx.map { drops[$0].id })
                     store.mutate { $0.secretLair?.removeAll { ids.contains($0.id) } }
                 }
+            case .upcoming:
+                SecretLairUpcomingSection()
             case .catalog:
                 SecretLairCatalogSection()
             }
@@ -135,6 +137,9 @@ struct DropDetailView: View {
                         .buttonStyle(.plain)
                     }
                 }
+                if let u = SecretLair.announcementURL(d.announcementUrl) {
+                    Link(destination: u) { Label("Announcement", systemImage: "megaphone") }
+                }
                 Toggle("Remind me", isOn: Binding(get: { d.marked }, set: { v in edit { $0.marked = v } }))
                 if d.saleStart != nil, SecretLair.state(d) != .ended {
                     Button { addingEvent = true } label: { Label("Add to Calendar", systemImage: "calendar.badge.plus") }
@@ -162,6 +167,17 @@ struct DropDetailView: View {
                 TextField("Foil price $", value: Binding(get: { d.foilPrice }, set: { v in edit { $0.foilPrice = v } }), format: .number).keyboardType(.decimalPad)
                 TextField("Drop link (https://secretlair.wizards.com/…)", text: Binding(get: { d.url ?? "" }, set: { v in edit { $0.url = v.trimmingCharacters(in: .whitespaces).isEmpty ? nil : v.trimmingCharacters(in: .whitespaces) } }))
                     .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                TextField("Announcement link (optional)", text: Binding(get: { d.announcementUrl ?? "" }, set: { v in
+                    let t = v.trimmingCharacters(in: .whitespaces)
+                    edit { $0.announcementUrl = t.lowercased().hasPrefix("https://") ? t : nil }
+                }))
+                .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+            }
+
+            if !d.cardIds.isEmpty, d.owned == nil {
+                Section("Price check") {
+                    PriceCompareView(cardIds: d.cardIds, cards: cards, price: d.price, foilPrice: d.foilPrice)
+                }
             }
 
             Section {
@@ -304,31 +320,13 @@ struct SecretLairCatalogSection: View {
             }
     }
 
-    private func follow(_ g: SecretLairGroup, _ cat: SecretLairCatalog) {
-        store.cache(g.cardIds.compactMap { cat.cards[$0] })
-        guard !(store.profile.secretLair ?? []).contains(where: { $0.cardIds == g.cardIds }) else { return }
-        let d = SecretLairDrop(name: g.name, cardIds: g.cardIds, marked: false)
-        store.mutate { $0.secretLair = [d] + ($0.secretLair ?? []) }
-    }
+    private func follow(_ g: SecretLairGroup, _ cat: SecretLairCatalog) { SecretLairData.follow(store, g) }
 
     private func load() async {
         loading = true
         error = nil
         defer { loading = false }
-        do {
-            var cards: [CardSummary] = []
-            for page in 1...4 {
-                let r = try await Scryfall.shared.search("e:sld", unique: "prints", order: "released", dir: "desc", page: page)
-                cards += r.cards
-                if !r.hasMore { break }
-            }
-            var slim: [String: CardSummary] = [:]
-            for c in cards { var x = c; x.oracleText = nil; slim[c.id] = x }
-            let groups = SecretLair.groupDrops(cards)
-            store.mutate { $0.secretLairCatalog = SecretLairCatalog(cards: slim, groups: groups, fetchedAt: isoNow()) }
-        } catch {
-            self.error = error.localizedDescription
-        }
+        do { try await SecretLairData.loadCatalog(store) } catch { self.error = error.localizedDescription }
     }
 }
 

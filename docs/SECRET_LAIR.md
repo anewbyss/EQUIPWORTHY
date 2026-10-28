@@ -4,6 +4,14 @@ Code: `web/src/lib/secretlair.ts`, `secretLairRunner.ts`, `pages/SecretLair.tsx`
 
 ## What it does
 - **Follow drops:** add an announced drop by hand, or follow one from **Recent drops**. Recent drops are Scryfall's Secret Lair cards, grouped by release date and consecutive collector numbers, because Scryfall doesn't name drops. A followed drop's cards get daily prices, alerts and forecasts like any tracked card.
+- **Upcoming & announced:** drops appear as soon as Scryfall lists their previewed cards, usually within a day of the announcement, soonest release first, plus anything released in the last 30 days. Each one shows when it was announced and by whom, with an **Announcement** link (Scryfall's preview source for the cards) and a **Cards on Scryfall** link. Following a drop keeps its announcement link.
+- **Pre-drop price check** on every upcoming and followed drop, non-foil or foil:
+  - the drop's price (its real price once you enter it; until then the usual $29.99, or $39.99 foil)
+  - **Secret Lair market:** TCGplayer market or pre-order prices for the Secret Lair versions, once they exist
+  - **Cheapest elsewhere:** the cheapest copy of each card in any other set (cards with no other printing are marked *new card*)
+  - a one-line read such as "Secret Lair copies trade $10.01 above the price; the cards cost $19.99 less in other printings".
+  - A **past drops** line gives context: the median value of drops released 2 months to 2 years ago, as a share of the usual price.
+  - Reprint prices are looked up in batched Scryfall searches and refreshed every 2 days, or on demand with **Re-check**.
 - **Sale details:** sale start and end, price, foil price, and the **official product link** from the Secret Lair site or Wizards' announcement.
 - **Reminders** 24 hours, 1 hour, 15 minutes and 5 minutes before the sale, then **at launch**. The launch and 5-minute notifications open the drop page when tapped. From 15 minutes before until 2 hours after, a launch strip with an **Open the drop** button stays at the top of every screen.
   - iOS: scheduled as local notifications, so they fire even when the app is closed. Launch notifications are marked time-sensitive.
