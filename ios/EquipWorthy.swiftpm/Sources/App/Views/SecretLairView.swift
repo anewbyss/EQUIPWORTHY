@@ -9,9 +9,10 @@ struct SecretLairView: View {
     enum Tab: String, CaseIterable { case following = "Following", upcoming = "Upcoming", catalog = "All drops" }
     @State private var tab = Tab.following
     @State private var newName = ""
+    @AppStorage("ew.sl-sort.following") private var sort = SecretLair.DropSort.sale.rawValue
 
     var drops: [SecretLairDrop] {
-        (store.profile.secretLair ?? []).sorted { ($0.saleStart ?? "9") < ($1.saleStart ?? "9") }
+        SecretLair.sortDrops(store.profile.secretLair ?? [], by: SecretLair.DropSort(rawValue: sort) ?? .sale)
     }
 
     var body: some View {
@@ -30,6 +31,9 @@ struct SecretLairView: View {
                             store.mutate { $0.secretLair = [d] + ($0.secretLair ?? []) }
                             newName = ""
                         }
+                    }
+                    Picker("Sort", selection: $sort) {
+                        ForEach(SecretLair.DropSort.allCases, id: \.rawValue) { Text($0.rawValue).tag($0.rawValue) }
                     }
                 } footer: {
                     Text("Add a drop when Wizards announces it, then set the sale time and paste the product link. Reminders arrive 24 hours, 1 hour, 15 minutes and 5 minutes before, then at launch. Tap one to open the drop.")
@@ -288,24 +292,30 @@ struct SecretLairCatalogSection: View {
     @EnvironmentObject var store: ProfileStore
     @State private var loading = false
     @State private var error: String?
+    @AppStorage("ew.sl-sort.all") private var sort = SecretLair.GroupSort.latest.rawValue
 
     var body: some View {
         let cat = store.profile.secretLairCatalog
+        let by = SecretLair.GroupSort(rawValue: sort) ?? .latest
+        let groups = cat.map { SecretLair.sortGroups($0.groups, by: by, cards: $0.cards, reprints: $0.reprints ?? [:]) } ?? []
         Section {
+            Picker("Sort", selection: $sort) {
+                ForEach(SecretLair.GroupSort.allCases.filter { $0 != .deal }, id: \.rawValue) { Text($0.rawValue).tag($0.rawValue) }
+            }
             Button(loading ? "Loading Secret Lair cards…" : "Reload") { Task { await load() } }.disabled(loading)
             if let error { Text(error).foregroundStyle(Theme.down).font(.caption) }
         } footer: {
-            Text("Grouped from Scryfall by release date and collector number. Scryfall doesn't name drops, so groups are named after their cards; rename them after you follow one. Upcoming drops appear once their cards are previewed.")
+            Text("From Scryfall's Secret Lair sets and the EquipWorthy drop calendar. Secret Lair Drop cards are grouped by release date and collector number; Scryfall doesn't name those drops, so they're named after their cards (rename them after you follow one).")
         }
         if let cat {
             Section("\(cat.groups.count) drops") {
-                ForEach(cat.groups.prefix(80)) { g in
+                ForEach(groups.prefix(80)) { g in
                     let v = SecretLair.value(g.cardIds, cards: cat.cards)
                     HStack {
                         CardImage(url: g.cardIds.first.flatMap { cat.cards[$0]?.imageSmall }, width: 36)
                         VStack(alignment: .leading) {
                             Text(g.name).lineLimit(2)
-                            Text("\(g.releasedAt) · \(g.cardIds.count) cards · \(v.total.usd)").font(.caption).foregroundStyle(.secondary)
+                            Text(catalogLine(g, worth: v.total)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("Follow") { follow(g, cat) }.buttonStyle(.bordered)
@@ -315,12 +325,17 @@ struct SecretLairCatalogSection: View {
         }
         Color.clear.frame(height: 0).listRowBackground(Color.clear)
             .task {
-                let stale = cat.flatMap { parseISO($0.fetchedAt) }.map { Date().timeIntervalSince($0) > 3 * 86400 } ?? true
-                if stale { await load() }
+                if SecretLairData.catalogStale(store) { await load() }
             }
     }
 
     private func follow(_ g: SecretLairGroup, _ cat: SecretLairCatalog) { SecretLairData.follow(store, g) }
+
+    private func catalogLine(_ g: SecretLairGroup, worth: Double) -> String {
+        let count: Int = g.cardIds.isEmpty ? (g.cardCount ?? 0) : g.cardIds.count
+        let money: String = g.price.map { "price \($0.usd)" } ?? "worth \(worth.usd)"
+        return "\(g.releasedAt) · \(count) cards · \(money)"
+    }
 
     private func load() async {
         loading = true

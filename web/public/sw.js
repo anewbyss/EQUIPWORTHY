@@ -1,6 +1,6 @@
 // Offline support: cache the app shell so EquipWorthy opens without a connection.
 // Card data and prices always come from the network (and the app's local storage).
-const CACHE = "equipworthy-v1";
+const CACHE = "equipworthy-v2";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["./", "./index.html", "./manifest.webmanifest", "./favicon.svg"])));
@@ -23,6 +23,11 @@ self.addEventListener("fetch", (e) => {
       caches.open(CACHE).then((c) => c.put("./index.html", copy));
       return res;
     }).catch(() => caches.match("./index.html")));
+    return;
+  }
+  // Data files (the drop calendar) change: network first.
+  if (url.pathname.endsWith(".json")) {
+    e.respondWith(fetch(req).catch(() => caches.match(req)));
     return;
   }
   // Hashed build assets never change: cache first.

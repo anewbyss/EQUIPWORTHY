@@ -5,7 +5,7 @@
 // EquipWorthy never joins the waiting room or buys anything for you: it gets you
 // to the official page at the right moment, ready to check out.
 
-import { priceFor, today, type CardSummary, type Finish, type QueueLog, type ReprintPrice, type SecretLairCatalog, type SecretLairDrop, type SecretLairGroup } from "./types";
+import { priceFor, today, type CalendarDrop, type CardSummary, type Finish, type QueueLog, type ReprintPrice, type SecretLairCatalog, type SecretLairDrop, type SecretLairGroup } from "./types";
 
 export const STORE_URL = "https://secretlair.wizards.com/";
 export const ACCOUNT_URL = "https://myaccounts.wizards.com/";
@@ -151,8 +151,15 @@ export function dropValue(cardIds: string[], cards: Record<string, CardSummary |
 
 // ---------------- catalog grouping ----------------
 
+/** Earliest preview date and the first preview link among a drop's cards. */
+function announcement(cards: CardSummary[]): Pick<SecretLairGroup, "announcedAt" | "announcementUrl" | "announcementSource"> {
+  const previewed = cards.filter((c) => c.preview?.at || c.preview?.url).sort((a, b) => (a.preview?.at ?? "9").localeCompare(b.preview?.at ?? "9"));
+  const linked = previewed.find((c) => c.preview?.url);
+  return { announcedAt: previewed[0]?.preview?.at?.slice(0, 10), announcementUrl: linked?.preview?.url, announcementSource: linked?.preview?.source };
+}
+
 /**
- * Scryfall lists every Secret Lair card in one set ("sld"). Group them into
+ * Scryfall lists most Secret Lair cards in one set ("sld"). Group them into
  * drops: same release date and consecutive collector numbers.
  */
 export function groupDrops(cards: CardSummary[]): SecretLairGroup[] {
@@ -163,16 +170,13 @@ export function groupDrops(cards: CardSummary[]): SecretLairGroup[] {
   const flush = () => {
     if (!cur) return;
     const names = [...new Set(cur.cards.map((c) => c.name))];
-    const previewed = cur.cards.filter((c) => c.preview?.at || c.preview?.url).sort((a, b) => (a.preview?.at ?? "9").localeCompare(b.preview?.at ?? "9"));
-    const linked = previewed.find((c) => c.preview?.url);
     groups.push({
       key: `${cur.releasedAt}#${cur.first}`,
       name: `${names.slice(0, 2).join(", ")}${names.length > 2 ? ` +${names.length - 2} more` : ""}`,
       releasedAt: cur.releasedAt,
       cardIds: cur.cards.map((c) => c.id),
-      announcedAt: previewed[0]?.preview?.at?.slice(0, 10),
-      announcementUrl: linked?.preview?.url,
-      announcementSource: linked?.preview?.source,
+      ...announcement(cur.cards),
+      sources: ["scryfall"],
     });
   };
   for (const c of sorted) {
@@ -189,6 +193,151 @@ export function groupDrops(cards: CardSummary[]): SecretLairGroup[] {
   return groups.sort((a, b) => b.releasedAt.localeCompare(a.releasedAt) || b.key.localeCompare(a.key));
 }
 
+// ---------------- more sources: other Secret Lair sets and the drop calendar ----------------
+
+/** Secret Lair products Scryfall lists as their own sets (Countdown Kits, bundles…), excluding promos and digital. */
+export const isSecretLairSet = (s: { code: string; name: string; digital?: boolean }) =>
+  s.code !== "sld" && !s.digital && /secret lair/i.test(s.name) && !/promo|showdown|token|art series/i.test(s.name);
+
+const https = (u: unknown) => (typeof u === "string" && /^https:\/\//i.test(u) ? u : undefined);
+const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined);
+const money = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v < 100_000 ? v : undefined);
+
+/** Validate the drop calendar file; bad entries are skipped. */
+export function parseCalendar(json: unknown): CalendarDrop[] {
+  const list = (json as { drops?: unknown })?.drops;
+  if (!Array.isArray(list)) return [];
+  const out: CalendarDrop[] = [];
+  for (const raw of list.slice(0, 300)) {
+    const r = raw as Record<string, unknown>;
+    const id = text(r?.id, 80), name = text(r?.name, 160);
+    if (!id || !name) continue;
+    const saleStart = typeof r.saleStart === "string" && !Number.isNaN(Date.parse(r.saleStart)) ? new Date(r.saleStart).toISOString() : undefined;
+    const releaseDate = typeof r.releaseDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.releaseDate) ? r.releaseDate : undefined;
+    if (!saleStart && !releaseDate) continue;
+    out.push({
+      id, name, saleStart, releaseDate,
+      price: money(r.price), foilPrice: money(r.foilPrice),
+      url: https(r.url), announcementUrl: https(r.announcementUrl),
+      set: typeof r.set === "string" && /^[a-z0-9]{2,8}$/i.test(r.set) ? r.set.toLowerCase() : undefined,
+      cards: typeof r.cards === "number" && r.cards > 0 && r.cards < 1000 ? Math.round(r.cards) : undefined,
+      notes: text(r.notes, 400), tentative: r.tentative === true || undefined,
+    });
+  }
+  return out;
+}
+
+/** Loose name key for matching a calendar entry to a Scryfall set: "Secret Lair Countdown Kit: Marvel's History of Heroes" → "marvels history of heroes". */
+export const nameKey = (s: string) =>
+  s.toLowerCase().replace(/secret lair|countdown kit|drop series|\bdrop\b|\bx\b/g, " ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+
+const sameDrop = (a: string, b: string) => {
+  const x = nameKey(a), y = nameKey(b);
+  return x.length >= 6 && y.length >= 6 && (x.includes(y) || y.includes(x));
+};
+
+/**
+ * Every drop from every source: Secret Lair Drop cards grouped by release date and
+ * collector number, other Secret Lair sets as one drop each (even before their cards
+ * are listed), and the EquipWorthy drop calendar, merged into matching drops. Newest first.
+ */
+export function buildCatalogGroups(cards: CardSummary[], sets: { code: string; name: string; releasedAt?: string }[] = [], calendar: CalendarDrop[] = []): SecretLairGroup[] {
+  const groups = groupDrops(cards.filter((c) => c.set === "sld"));
+  for (const set of sets) {
+    const mine = cards.filter((c) => c.set === set.code).sort((a, b) => (parseInt(a.collectorNumber, 10) || 0) - (parseInt(b.collectorNumber, 10) || 0));
+    const releasedAt = set.releasedAt ?? mine.map((c) => c.releasedAt).sort()[0];
+    if (!releasedAt) continue;
+    groups.push({ key: `set:${set.code}`, name: set.name, releasedAt, cardIds: mine.map((c) => c.id), set: set.code, ...announcement(mine), sources: ["scryfall"] });
+  }
+  for (const cal of calendar) {
+    const g = groups.find((x) => (cal.set && x.set === cal.set) || (x.set && sameDrop(x.name, cal.name)));
+    const fields = {
+      saleStart: cal.saleStart, price: cal.price, foilPrice: cal.foilPrice, url: cal.url, notes: cal.notes, tentative: cal.tentative, cardCount: cal.cards,
+    };
+    if (g) {
+      Object.assign(g, Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)));
+      g.name = cal.name;
+      g.announcementUrl = cal.announcementUrl ?? g.announcementUrl;
+      g.sources = [...new Set([...(g.sources ?? []), "calendar" as const])];
+    } else {
+      groups.push({
+        key: `cal:${cal.id}`, name: cal.name, releasedAt: (cal.saleStart ?? cal.releaseDate!).slice(0, 10), cardIds: [],
+        announcementUrl: cal.announcementUrl, set: cal.set, sources: ["calendar"], ...fields,
+      });
+    }
+  }
+  return groups.sort((a, b) => b.releasedAt.localeCompare(a.releasedAt) || b.key.localeCompare(a.key));
+}
+
+/** Give followed drops that were added before their cards were listed (e.g. from the calendar) their cards. */
+export function attachCards(drops: SecretLairDrop[], groups: SecretLairGroup[]): SecretLairDrop[] {
+  let changed = false;
+  const out = drops.map((d) => {
+    if (d.cardIds.length) return d;
+    const g = groups.find((x) => x.cardIds.length > 0 && (x.name.toLowerCase() === d.name.toLowerCase() || (!!x.set && sameDrop(x.name, d.name))));
+    if (!g) return d;
+    changed = true;
+    return { ...d, cardIds: g.cardIds, announcementUrl: d.announcementUrl ?? g.announcementUrl, updatedAt: new Date().toISOString() };
+  });
+  return changed ? out : drops;
+}
+
+// ---------------- sorting ----------------
+
+export type GroupSort = "soonest" | "latest" | "announced" | "deal" | "value" | "price" | "name";
+export const GROUP_SORTS: { key: GroupSort; label: string }[] = [
+  { key: "soonest", label: "Release: soonest first" },
+  { key: "latest", label: "Release: newest first" },
+  { key: "announced", label: "Recently announced" },
+  { key: "deal", label: "Best deal vs price" },
+  { key: "value", label: "Card value: high to low" },
+  { key: "price", label: "Price: low to high" },
+  { key: "name", label: "Name" },
+];
+
+/** How much better the cards are than the price: Secret Lair market gap, else savings vs other printings. Higher is better. */
+export const dealScore = (c: DropComparison): number | undefined => c.marketGap ?? (c.premium != null ? -c.premium : undefined);
+
+export function sortGroups(
+  groups: SecretLairGroup[],
+  by: GroupSort,
+  ctx: { cards: Record<string, CardSummary | undefined>; reprints?: Record<string, ReprintPrice | undefined> },
+): SecretLairGroup[] {
+  const when = (g: SecretLairGroup) => g.saleStart ?? g.releasedAt;
+  const last = (v: number | undefined, desc: boolean) => (v == null ? Infinity : desc ? -v : v);
+  const key = (g: SecretLairGroup): number | string => {
+    switch (by) {
+      case "deal": return last(dealScore(compareDrop(g.cardIds, ctx.cards, ctx.reprints ?? {}, { price: g.price })), true);
+      case "value": { const v = dropValue(g.cardIds, ctx.cards); return last(v.priced ? v.total : undefined, true); }
+      case "price": return last(g.price, false);
+      case "announced": return g.announcedAt ? -Date.parse(g.announcedAt) : Infinity;
+      default: return 0;
+    }
+  };
+  const out = [...groups];
+  if (by === "soonest") return out.sort((a, b) => when(a).localeCompare(when(b)) || a.key.localeCompare(b.key));
+  if (by === "latest") return out.sort((a, b) => when(b).localeCompare(when(a)) || b.key.localeCompare(a.key));
+  if (by === "name") return out.sort((a, b) => a.name.localeCompare(b.name));
+  const keys = new Map(out.map((g) => [g.key, key(g) as number]));
+  return out.sort((a, b) => keys.get(a.key)! - keys.get(b.key)! || when(a).localeCompare(when(b)));
+}
+
+export type DropSort = "sale" | "name" | "added" | "ready";
+export const DROP_SORTS: { key: DropSort; label: string }[] = [
+  { key: "sale", label: "Sale time" },
+  { key: "added", label: "Recently added" },
+  { key: "ready", label: "Least ready first" },
+  { key: "name", label: "Name" },
+];
+
+export function sortDrops(drops: SecretLairDrop[], by: DropSort): SecretLairDrop[] {
+  const out = [...drops];
+  if (by === "name") return out.sort((a, b) => a.name.localeCompare(b.name));
+  if (by === "added") return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  if (by === "ready") return out.sort((a, b) => readiness(a) - readiness(b) || (a.saleStart ?? "9").localeCompare(b.saleStart ?? "9"));
+  return out.sort((a, b) => (a.saleStart ?? "9").localeCompare(b.saleStart ?? "9"));
+}
+
 // ---------------- upcoming drops and pre-drop price comparison ----------------
 
 /** Usual Secret Lair prices, used when a drop's price isn't known yet. */
@@ -203,14 +352,16 @@ export const scryfallGroupUrl = (g: SecretLairGroup, cards: Record<string, CardS
 /** Announced drops not yet released, plus ones released in the last `recentDays` days, soonest first. */
 export function upcomingGroups(groups: SecretLairGroup[], now = new Date(), recentDays = 30): SecretLairGroup[] {
   const from = today(new Date(now.getTime() - recentDays * 86400_000));
-  return groups.filter((g) => g.releasedAt >= from).sort((a, b) => a.releasedAt.localeCompare(b.releasedAt) || a.key.localeCompare(b.key));
+  return groups.filter((g) => g.releasedAt >= from).sort((a, b) => (a.saleStart ?? a.releasedAt).localeCompare(b.saleStart ?? b.releasedAt) || a.key.localeCompare(b.key));
 }
 
-export const isUpcoming = (g: Pick<SecretLairGroup, "releasedAt">, now = new Date()) => g.releasedAt > today(now);
+export const isUpcoming = (g: Pick<SecretLairGroup, "releasedAt" | "saleStart">, now = new Date()) =>
+  g.saleStart ? Date.parse(g.saleStart) > now.getTime() : g.releasedAt > today(now);
 
 /** Cheapest non-Secret Lair copies from a list of printings of one card. */
-export function cheapestReprint(prints: CardSummary[], now = new Date()): ReprintPrice {
-  const paper = prints.filter((c) => c.set !== "sld");
+export function cheapestReprint(prints: CardSummary[], now = new Date(), secretLairSets: string[] = ["sld"]): ReprintPrice {
+  const skip = new Set(secretLairSets);
+  const paper = prints.filter((c) => !skip.has(c.set));
   const min = (xs: (number | undefined)[]) => {
     const v = xs.filter((x): x is number => x != null && x > 0);
     return v.length ? Math.min(...v) : undefined;

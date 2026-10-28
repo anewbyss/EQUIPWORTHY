@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cheapestReprint, compareDrop, compareSummary, countdown, dropState, dropValue, dueQueueNotice, dueReminder, etaText, groupDrops, isUpcoming, launchUrl, newDrop,
-  pastDropTrend, queueEstimate, STORE_URL, upcomingGroups,
+  pastDropTrend, queueEstimate, STORE_URL, upcomingGroups, parseCalendar, isSecretLairSet, nameKey, buildCatalogGroups, attachCards, sortGroups, sortDrops,
 } from "../secretlair";
 import { mergeProfiles, forSync } from "../sync";
 import { trackedIds } from "../prices";
@@ -117,6 +117,7 @@ describe("upcoming drops and price comparison", () => {
     ], NOW);
     expect(r).toMatchObject({ usd: 2.5, usdFoil: 9, setName: "Commander Legends", printings: 2 });
     expect(cheapestReprint([], NOW).printings).toBe(0);
+    expect(cheapestReprint([card("k", "1", "", { set: "slm", prices: { usd: 1 } })], NOW, ["sld", "slm"]).printings).toBe(0);
   });
 
   it("compares the drop price with the Secret Lair market and other printings", () => {
@@ -144,5 +145,80 @@ describe("upcoming drops and price comparison", () => {
     expect(t.drops).toBe(3);
     expect(t.median).toBeCloseTo(30 / 29.99, 3);
     expect(pastDropTrend({ cards, groups: groups.slice(0, 2), fetchedAt: "" }, NOW)).toBeNull();
+  });
+});
+
+describe("more drop sources and sorting", () => {
+  const card = (id: string, cn: string, rel: string, extra: Partial<CardSummary> = {}): CardSummary => ({
+    id, oracleId: `o-${id}`, name: `Card ${id}`, set: "sld", setName: "Secret Lair Drop", collectorNumber: cn, rarity: "rare", typeLine: "Creature", cmc: 1, colors: [], colorIdentity: [],
+    releasedAt: rel, reserved: false, reprint: true, legalities: {}, prices: {}, finishes: ["nonfoil"], fetchedAt: "", ...extra,
+  });
+  const marvelCal = {
+    drops: [
+      { id: "marvel-kit", name: "Secret Lair Countdown Kit: Marvel's History of Heroes", saleStart: "2026-11-02T17:00:00Z", price: 199.99, cards: 30, announcementUrl: "https://magic.wizards.com/en/news/x" },
+      { id: "doom", name: "Doomsdrop", releaseDate: "2026-11-16", tentative: true, url: "javascript:alert(1)" },
+      { id: "bad" },
+      { id: "nodate", name: "No date" },
+    ],
+  };
+
+  it("validates the drop calendar", () => {
+    const cal = parseCalendar(marvelCal);
+    expect(cal.map((c) => c.id)).toEqual(["marvel-kit", "doom"]);
+    expect(cal[0]).toMatchObject({ saleStart: "2026-11-02T17:00:00.000Z", price: 199.99, cards: 30 });
+    expect(cal[1]).toMatchObject({ tentative: true, url: undefined });
+    expect(parseCalendar(null)).toEqual([]);
+  });
+
+  it("finds Secret Lair sets beyond sld", () => {
+    expect(isSecretLairSet({ code: "slc", name: "Secret Lair 30th Anniversary Countdown Kit" })).toBe(true);
+    expect(isSecretLairSet({ code: "sld", name: "Secret Lair Drop" })).toBe(false);
+    expect(isSecretLairSet({ code: "pslp", name: "Secret Lair Showdown" })).toBe(false);
+    expect(isSecretLairSet({ code: "slx", name: "Secret Lair Kit", digital: true })).toBe(false);
+    expect(nameKey("Secret Lair Countdown Kit: Marvel's History of Heroes")).toBe("marvel s history of heroes");
+  });
+
+  it("merges Scryfall drops, kit sets and the calendar", () => {
+    const cards = [card("a", "100", "2026-10-01"), card("k1", "1", "2026-11-02", { set: "slm" }), card("k2", "2", "2026-11-02", { set: "slm" })];
+    const sets = [{ code: "slm", name: "Secret Lair Countdown Kit: Marvel's History of Heroes", releasedAt: "2026-11-02" }, { code: "sle", name: "Secret Lair Empty Kit", releasedAt: "2026-12-01" }];
+    const g = buildCatalogGroups(cards, sets, parseCalendar(marvelCal));
+    const kit = g.find((x) => x.key === "set:slm")!;
+    expect(kit).toMatchObject({ cardIds: ["k1", "k2"], price: 199.99, saleStart: "2026-11-02T17:00:00.000Z", sources: ["scryfall", "calendar"], announcementUrl: "https://magic.wizards.com/en/news/x" });
+    expect(g.find((x) => x.key === "set:sle")!.cardIds).toEqual([]);
+    expect(g.find((x) => x.key === "cal:doom")).toMatchObject({ releasedAt: "2026-11-16", tentative: true, sources: ["calendar"] });
+    expect(g.map((x) => x.key)).toEqual(["set:sle", "cal:doom", "set:slm", "2026-10-01#100"]);
+  });
+
+  it("attaches cards to drops followed before Scryfall listed them", () => {
+    const groups = buildCatalogGroups([card("k1", "1", "2026-11-02", { set: "slm" })], [{ code: "slm", name: "Secret Lair Countdown Kit: Marvel's History of Heroes" }]);
+    const d = newDrop("Secret Lair Countdown Kit: Marvel's History of Heroes");
+    expect(attachCards([d], groups)[0].cardIds).toEqual(["k1"]);
+    const other = newDrop("Something else");
+    const same = [other];
+    expect(attachCards(same, groups)).toBe(same);
+  });
+
+  it("sorts drops several ways", () => {
+    const cards = { a: card("a", "1", "", { prices: { usd: 50 } }), b: card("b", "2", "", { prices: { usd: 10 } }) };
+    const groups = [
+      { key: "x", name: "Zed", releasedAt: "2026-11-20", cardIds: ["b"], announcedAt: "2026-10-01" },
+      { key: "y", name: "Alpha", releasedAt: "2026-11-05", cardIds: ["a"], announcedAt: "2026-10-20", price: 39.99 },
+      { key: "z", name: "Mid", releasedAt: "2026-11-10", cardIds: [], saleStart: "2026-11-02T17:00:00Z", price: 199.99 },
+    ];
+    const ctx = { cards };
+    const order = (by: Parameters<typeof sortGroups>[1]) => sortGroups(groups, by, ctx).map((g) => g.key);
+    expect(order("soonest")).toEqual(["z", "y", "x"]);
+    expect(order("latest")).toEqual(["x", "y", "z"]);
+    expect(order("name")).toEqual(["y", "z", "x"]);
+    expect(order("value")).toEqual(["y", "x", "z"]);
+    expect(order("price")).toEqual(["y", "z", "x"]);
+    expect(order("announced")).toEqual(["y", "x", "z"]);
+    expect(order("deal")).toEqual(["y", "x", "z"]); // y: +10.01 over price, x: -19.99, z: no cards
+    const d1 = { ...newDrop("B"), saleStart: "2026-12-01T00:00:00Z", createdAt: "2026-10-01" };
+    const d2 = { ...newDrop("A"), saleStart: "2026-11-01T00:00:00Z", createdAt: "2026-10-05", checklist: { account: true } };
+    expect(sortDrops([d1, d2], "sale").map((d) => d.name)).toEqual(["A", "B"]);
+    expect(sortDrops([d1, d2], "name").map((d) => d.name)).toEqual(["A", "B"]);
+    expect(sortDrops([d1, d2], "added").map((d) => d.name)).toEqual(["A", "B"]);
+    expect(sortDrops([d1, d2], "ready").map((d) => d.name)).toEqual(["B", "A"]);
   });
 });

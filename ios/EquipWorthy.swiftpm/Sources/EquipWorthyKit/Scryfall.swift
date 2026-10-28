@@ -19,6 +19,7 @@ public struct SetInfo: Codable, Hashable, Identifiable, Sendable {
     public var set_type: String
     public var card_count: Int
     public var icon_svg_uri: String?
+    public var digital: Bool?
     public var id: String { code }
 }
 

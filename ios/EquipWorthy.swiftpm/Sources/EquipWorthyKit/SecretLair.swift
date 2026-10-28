@@ -83,7 +83,43 @@ public struct SecretLairGroup: Codable, Hashable, Identifiable, Sendable {
     public var announcedAt: String?
     public var announcementUrl: String?
     public var announcementSource: String?
+    /// Where this drop was found: "scryfall", "calendar".
+    public var sources: [String]?
+    /// Scryfall set code when the drop is its own set (e.g. Countdown Kits).
+    public var set: String?
+    public var saleStart: String?
+    public var price: Double?
+    public var foilPrice: Double?
+    public var url: String?
+    public var notes: String?
+    public var tentative: Bool?
+    /// Announced number of cards, when Scryfall doesn't list them yet.
+    public var cardCount: Int?
     public var id: String { key }
+}
+
+/// One entry in EquipWorthy's Secret Lair drop calendar (web/public/secret-lair-drops.json).
+public struct CalendarDrop: Codable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var saleStart: String?
+    public var releaseDate: String?
+    public var price: Double?
+    public var foilPrice: Double?
+    public var url: String?
+    public var announcementUrl: String?
+    public var set: String?
+    public var cards: Int?
+    public var notes: String?
+    public var tentative: Bool?
+}
+
+/// A Secret Lair product Scryfall lists as its own set.
+public struct SecretLairSet: Codable, Hashable, Sendable {
+    public var code: String
+    public var name: String
+    public var releasedAt: String?
+    public init(code: String, name: String, releasedAt: String? = nil) { self.code = code; self.name = name; self.releasedAt = releasedAt }
 }
 
 /// Cheapest copies of a card outside Secret Lair, for pre-drop price comparisons.
@@ -104,8 +140,12 @@ public struct SecretLairCatalog: Codable, Hashable, Sendable {
     public var fetchedAt: String
     /// By oracle id.
     public var reprints: [String: ReprintPrice]?
-    public init(cards: [String: CardSummary], groups: [SecretLairGroup], fetchedAt: String, reprints: [String: ReprintPrice]? = nil) {
-        self.cards = cards; self.groups = groups; self.fetchedAt = fetchedAt; self.reprints = reprints
+    /// Secret Lair sets on Scryfall besides "sld".
+    public var sets: [SecretLairSet]?
+    public var calendar: [CalendarDrop]?
+    public init(cards: [String: CardSummary], groups: [SecretLairGroup], fetchedAt: String, reprints: [String: ReprintPrice]? = nil,
+                sets: [SecretLairSet]? = nil, calendar: [CalendarDrop]? = nil) {
+        self.cards = cards; self.groups = groups; self.fetchedAt = fetchedAt; self.reprints = reprints; self.sets = sets; self.calendar = calendar
     }
 }
 
@@ -273,6 +313,16 @@ public enum SecretLair {
     }
 
     /// Group Scryfall's single Secret Lair set into drops: same release date and consecutive collector numbers.
+    /// Earliest preview date and first preview link among a drop's cards.
+    static func applyAnnouncement(_ g: inout SecretLairGroup, _ cards: [CardSummary]) {
+        let previewed = cards.filter { $0.preview?.at != nil || $0.preview?.url != nil }
+            .sorted { ($0.preview?.at ?? "9") < ($1.preview?.at ?? "9") }
+        let linked = previewed.first { $0.preview?.url != nil }
+        g.announcedAt = previewed.first?.preview?.at.map { String($0.prefix(10)) }
+        g.announcementUrl = linked?.preview?.url
+        g.announcementSource = linked?.preview?.source
+    }
+
     public static func groupDrops(_ cards: [CardSummary]) -> [SecretLairGroup] {
         let numbered: [(card: CardSummary, n: Int)] = cards.compactMap { c in
             let digits = c.collectorNumber.prefix { $0.isNumber }
@@ -288,12 +338,10 @@ public enum SecretLair {
             var names: [String] = []
             for c in current where !names.contains(c.name) { names.append(c.name) }
             let label = names.prefix(2).joined(separator: ", ") + (names.count > 2 ? " +\(names.count - 2) more" : "")
-            let previewed = current.filter { $0.preview?.at != nil || $0.preview?.url != nil }
-                .sorted { ($0.preview?.at ?? "9") < ($1.preview?.at ?? "9") }
-            let linked = previewed.first { $0.preview?.url != nil }
-            groups.append(SecretLairGroup(key: "\(released)#\(first)", name: label, releasedAt: released, cardIds: current.map(\.id),
-                                          announcedAt: previewed.first?.preview?.at.map { String($0.prefix(10)) },
-                                          announcementUrl: linked?.preview?.url, announcementSource: linked?.preview?.source))
+            var g = SecretLairGroup(key: "\(released)#\(first)", name: label, releasedAt: released, cardIds: current.map(\.id))
+            applyAnnouncement(&g, current)
+            g.sources = ["scryfall"]
+            groups.append(g)
         }
         for (c, n) in sorted {
             if !current.isEmpty && released == c.releasedAt && n - last <= 1 {
@@ -329,15 +377,21 @@ public enum SecretLair {
     /// Announced drops not yet released, plus ones released in the last `recentDays` days, soonest first.
     public static func upcomingGroups(_ groups: [SecretLairGroup], now: Date = Date(), recentDays: Int = 30) -> [SecretLairGroup] {
         let from = dayString(now.addingTimeInterval(-Double(recentDays) * 86400))
-        return groups.filter { $0.releasedAt >= from }
-            .sorted { $0.releasedAt != $1.releasedAt ? $0.releasedAt < $1.releasedAt : $0.key < $1.key }
+        return groups.filter { $0.releasedAt >= from }.sorted { a, b in
+            let x = a.saleStart ?? a.releasedAt, y = b.saleStart ?? b.releasedAt
+            return x != y ? x < y : a.key < b.key
+        }
     }
 
-    public static func isUpcoming(_ g: SecretLairGroup, now: Date = Date()) -> Bool { g.releasedAt > dayString(now) }
+    public static func isUpcoming(_ g: SecretLairGroup, now: Date = Date()) -> Bool {
+        if let s = g.saleStart, let t = parseISO(s) { return t > now }
+        return g.releasedAt > dayString(now)
+    }
 
     /// Cheapest non-Secret Lair copies from a list of printings of one card.
-    public static func cheapestReprint(_ prints: [CardSummary], now: Date = Date()) -> ReprintPrice {
-        let paper = prints.filter { $0.set != "sld" }
+    public static func cheapestReprint(_ prints: [CardSummary], now: Date = Date(), secretLairSets: [String] = ["sld"]) -> ReprintPrice {
+        let skip = Set(secretLairSets)
+        let paper = prints.filter { !skip.contains($0.set) }
         let usd = paper.compactMap { $0.prices.usd }.filter { $0 > 0 }.min()
         let foil = paper.compactMap { $0.prices.usdFoil }.filter { $0 > 0 }.min()
         let setName = usd.flatMap { u in paper.first { $0.prices.usd == u }?.setName }
@@ -425,7 +479,8 @@ public enum SecretLair {
     }
 
     /// Look up the cheapest non-Secret Lair copies of cards (by oracle id) in a few batched Scryfall searches.
-    public static func fetchReprints(_ oracleIds: [String]) async throws -> [String: ReprintPrice] {
+    public static func fetchReprints(_ oracleIds: [String], secretLairSets: [String] = ["sld"]) async throws -> [String: ReprintPrice] {
+        let exclude = secretLairSets.map { "-e:\($0)" }.joined(separator: " ")
         var found: [String: ReprintPrice] = [:]
         var i = 0
         while i < oracleIds.count {
@@ -433,7 +488,7 @@ public enum SecretLair {
             i += 12
             var byOracle: [String: [CardSummary]] = [:]
             for id in batch { byOracle[id] = [] }
-            let q = "(" + batch.map { "oracleid:\($0)" }.joined(separator: " or ") + ") -e:sld"
+            let q = "(" + batch.map { "oracleid:\($0)" }.joined(separator: " or ") + ") " + exclude
             var page = 1
             while true {
                 let r = try await Scryfall.shared.search(q, unique: "prints", order: "usd", dir: "asc", page: page)
@@ -441,7 +496,7 @@ public enum SecretLair {
                 if !r.hasMore || page >= 4 { break }
                 page += 1
             }
-            for id in batch { found[id] = cheapestReprint(byOracle[id] ?? []) }
+            for id in batch { found[id] = cheapestReprint(byOracle[id] ?? [], secretLairSets: secretLairSets) }
         }
         return found
     }
@@ -460,5 +515,191 @@ public enum SecretLair {
         ratios.sort()
         let m = ratios.count / 2
         return (ratios.count % 2 == 1 ? ratios[m] : (ratios[m - 1] + ratios[m]) / 2, ratios.count)
+    }
+
+    // MARK: More sources: other Secret Lair sets and the drop calendar
+
+    /// EquipWorthy's drop calendar, read from GitHub so edits show up without an app update.
+    public static let calendarURL = URL(string: "https://raw.githubusercontent.com/anewbyss/EQUIPWORTHY/main/web/public/secret-lair-drops.json")!
+    public static let calendarEditURL = URL(string: "https://github.com/anewbyss/EQUIPWORTHY/blob/main/web/public/secret-lair-drops.json")!
+
+    /// Secret Lair products Scryfall lists as their own sets, excluding promos and digital.
+    public static func isSecretLairSet(code: String, name: String, digital: Bool = false) -> Bool {
+        guard code != "sld", !digital else { return false }
+        let n = name.lowercased()
+        return n.contains("secret lair") && !["promo", "showdown", "token", "art series"].contains { n.contains($0) }
+    }
+
+    private static func https(_ s: String?) -> String? { s.flatMap { $0.lowercased().hasPrefix("https://") ? $0 : nil } }
+    private static func text(_ s: String?, _ max: Int) -> String? {
+        guard let t = s?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
+        return String(t.prefix(max))
+    }
+
+    /// Validate the drop calendar file; bad entries are skipped.
+    public static func parseCalendar(_ data: Data) -> [CalendarDrop] {
+        struct File: Decodable { var drops: [Raw]? }
+        struct Raw: Decodable {
+            var id: String?; var name: String?; var saleStart: String?; var releaseDate: String?
+            var price: Double?; var foilPrice: Double?; var url: String?; var announcementUrl: String?
+            var set: String?; var cards: Int?; var notes: String?; var tentative: Bool?
+        }
+        guard let file = try? JSONDecoder().decode(File.self, from: data) else { return [] }
+        var out: [CalendarDrop] = []
+        for r in (file.drops ?? []).prefix(300) {
+            guard let id = text(r.id, 80), let name = text(r.name, 160) else { continue }
+            let sale = r.saleStart.flatMap(parseISO).map { isoNow($0) }
+            let day = r.releaseDate.flatMap { $0.count == 10 && dayDate($0) != nil ? $0 : nil }
+            guard sale != nil || day != nil else { continue }
+            let money: (Double?) -> Double? = { v in v.flatMap { $0 >= 0 && $0 < 100_000 ? $0 : nil } }
+            let set = r.set.flatMap { s in s.count >= 2 && s.count <= 8 && s.allSatisfy { $0.isLetter || $0.isNumber } ? s.lowercased() : nil }
+            out.append(CalendarDrop(id: id, name: name, saleStart: sale, releaseDate: day, price: money(r.price), foilPrice: money(r.foilPrice),
+                                    url: https(r.url), announcementUrl: https(r.announcementUrl), set: set,
+                                    cards: r.cards.flatMap { $0 > 0 && $0 < 1000 ? $0 : nil }, notes: text(r.notes, 400),
+                                    tentative: r.tentative == true ? true : nil))
+        }
+        return out
+    }
+
+    /// Loose name key for matching: "Secret Lair Countdown Kit: Marvel's History of Heroes" → "marvel s history of heroes".
+    public static func nameKey(_ s: String) -> String {
+        var t = s.lowercased()
+        t = t.replacingOccurrences(of: "secret lair|countdown kit|drop series|\\bdrop\\b|\\bx\\b", with: " ", options: .regularExpression)
+        t = t.replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+        return t.trimmingCharacters(in: .whitespaces)
+    }
+
+    static func sameDrop(_ a: String, _ b: String) -> Bool {
+        let x = nameKey(a), y = nameKey(b)
+        return x.count >= 6 && y.count >= 6 && (x.contains(y) || y.contains(x))
+    }
+
+    /// Every drop from every source, newest first (same rules as the web app).
+    public static func buildCatalogGroups(_ cards: [CardSummary], sets: [SecretLairSet] = [], calendar: [CalendarDrop] = []) -> [SecretLairGroup] {
+        var groups = groupDrops(cards.filter { $0.set == "sld" })
+        for set in sets {
+            let mine = cards.filter { $0.set == set.code }.sorted { (Int($0.collectorNumber.prefix { $0.isNumber }) ?? 0) < (Int($1.collectorNumber.prefix { $0.isNumber }) ?? 0) }
+            guard let released = set.releasedAt ?? mine.map(\.releasedAt).min() else { continue }
+            var g = SecretLairGroup(key: "set:\(set.code)", name: set.name, releasedAt: released, cardIds: mine.map(\.id))
+            applyAnnouncement(&g, mine)
+            g.set = set.code
+            g.sources = ["scryfall"]
+            groups.append(g)
+        }
+        for cal in calendar {
+            if let i = groups.firstIndex(where: { g in (cal.set != nil && g.set == cal.set) || (g.set != nil && sameDrop(g.name, cal.name)) }) {
+                var g = groups[i]
+                g.name = cal.name
+                if let v = cal.saleStart { g.saleStart = v }
+                if let v = cal.price { g.price = v }
+                if let v = cal.foilPrice { g.foilPrice = v }
+                if let v = cal.url { g.url = v }
+                if let v = cal.notes { g.notes = v }
+                if let v = cal.tentative { g.tentative = v }
+                if let v = cal.cards { g.cardCount = v }
+                g.announcementUrl = cal.announcementUrl ?? g.announcementUrl
+                if !(g.sources ?? []).contains("calendar") { g.sources = (g.sources ?? []) + ["calendar"] }
+                groups[i] = g
+            } else {
+                let day = String((cal.saleStart ?? cal.releaseDate ?? "").prefix(10))
+                var g = SecretLairGroup(key: "cal:\(cal.id)", name: cal.name, releasedAt: day, cardIds: [])
+                g.announcementUrl = cal.announcementUrl
+                g.set = cal.set; g.sources = ["calendar"]; g.saleStart = cal.saleStart; g.price = cal.price; g.foilPrice = cal.foilPrice
+                g.url = cal.url; g.notes = cal.notes; g.tentative = cal.tentative; g.cardCount = cal.cards
+                groups.append(g)
+            }
+        }
+        return groups.sorted { $0.releasedAt != $1.releasedAt ? $0.releasedAt > $1.releasedAt : $0.key > $1.key }
+    }
+
+    /// Give followed drops added before their cards were listed (e.g. from the calendar) their cards.
+    public static func attachCards(_ drops: [SecretLairDrop], groups: [SecretLairGroup]) -> [SecretLairDrop]? {
+        var changed = false
+        let out = drops.map { d -> SecretLairDrop in
+            guard d.cardIds.isEmpty else { return d }
+            let match = groups.first { g in
+                !g.cardIds.isEmpty && (g.name.lowercased() == d.name.lowercased() || (g.set != nil && sameDrop(g.name, d.name)))
+            }
+            guard let g = match else { return d }
+            changed = true
+            var x = d
+            x.cardIds = g.cardIds
+            x.announcementUrl = d.announcementUrl ?? g.announcementUrl
+            x.updatedAt = isoNow()
+            return x
+        }
+        return changed ? out : nil
+    }
+
+    public static func isFollowed(_ drops: [SecretLairDrop], _ g: SecretLairGroup) -> Bool {
+        drops.contains { d in (!g.cardIds.isEmpty && d.cardIds == g.cardIds) || d.name.lowercased() == g.name.lowercased() }
+    }
+
+    // MARK: Sorting
+
+    public enum GroupSort: String, CaseIterable, Sendable {
+        case soonest = "Release: soonest first"
+        case latest = "Release: newest first"
+        case announced = "Recently announced"
+        case deal = "Best deal vs price"
+        case value = "Card value: high to low"
+        case price = "Price: low to high"
+        case name = "Name"
+    }
+
+    /// Market gap, else savings vs other printings. Higher is better.
+    public static func dealScore(_ c: Comparison) -> Double? { c.marketGap ?? c.premium.map { -$0 } }
+
+    public static func sortGroups(_ groups: [SecretLairGroup], by: GroupSort, cards: [String: CardSummary], reprints: [String: ReprintPrice] = [:]) -> [SecretLairGroup] {
+        let when: (SecretLairGroup) -> String = { $0.saleStart ?? $0.releasedAt }
+        switch by {
+        case .soonest:
+            return groups.sorted { when($0) != when($1) ? when($0) < when($1) : $0.key < $1.key }
+        case .latest:
+            return groups.sorted { when($0) != when($1) ? when($0) > when($1) : $0.key > $1.key }
+        case .name:
+            return groups.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        default:
+            break
+        }
+        // Lower key sorts first; missing values go last.
+        var keys: [String: Double] = [:]
+        for g in groups {
+            var k: Double?
+            switch by {
+            case .deal: k = dealScore(compare(g.cardIds, cards: cards, reprints: reprints, price: g.price)).map { -$0 }
+            case .value:
+                let v = value(g.cardIds, cards: cards)
+                k = v.priced > 0 ? -v.total : nil
+            case .price: k = g.price
+            case .announced: k = g.announcedAt.flatMap(dayDate).map { -$0.timeIntervalSince1970 }
+            default: k = nil
+            }
+            keys[g.key] = k ?? .infinity
+        }
+        return groups.sorted { a, b in
+            let x = keys[a.key] ?? .infinity, y = keys[b.key] ?? .infinity
+            return x != y ? x < y : when(a) < when(b)
+        }
+    }
+
+    public enum DropSort: String, CaseIterable, Sendable {
+        case sale = "Sale time"
+        case added = "Recently added"
+        case ready = "Least ready first"
+        case name = "Name"
+    }
+
+    public static func sortDrops(_ drops: [SecretLairDrop], by: DropSort) -> [SecretLairDrop] {
+        switch by {
+        case .name: return drops.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        case .added: return drops.sorted { $0.createdAt > $1.createdAt }
+        case .ready:
+            return drops.sorted { a, b in
+                let x = readiness(a), y = readiness(b)
+                return x != y ? x < y : (a.saleStart ?? "9") < (b.saleStart ?? "9")
+            }
+        case .sale: return drops.sorted { ($0.saleStart ?? "9") < ($1.saleStart ?? "9") }
+        }
     }
 }

@@ -4,8 +4,9 @@ import { Empty, PageHeader, Thumb } from "../components/ui";
 import { usd } from "../lib/deckstats";
 import { applySnapshot } from "../lib/prices";
 import {
-  ACCOUNT_URL, CHECKLIST, STORE_URL, TYPICAL_PRICE, compareDrop, compareSummary, countdown, dropState, dropValue, etaText, icsFor, isChecked, isUpcoming,
-  launchUrl, newDrop, pastDropTrend, queueEstimate, readiness, scryfallGroupUrl, upcomingGroups,
+  ACCOUNT_URL, CHECKLIST, DROP_SORTS, GROUP_SORTS, STORE_URL, TYPICAL_PRICE, compareDrop, compareSummary, countdown, dropState, dropValue, etaText, icsFor,
+  isChecked, isUpcoming, launchUrl, newDrop, pastDropTrend, queueEstimate, readiness, scryfallGroupUrl, sortDrops, sortGroups, upcomingGroups,
+  type DropSort, type GroupSort,
 } from "../lib/secretlair";
 import { catalogStale, loadCatalog, loadReprints, tick } from "../lib/secretLairRunner";
 import { cacheCards, download, getState, update, useProfile } from "../lib/store";
@@ -36,7 +37,8 @@ export default function SecretLairPage() {
   const p = useProfile();
   const [tab, setTab] = useState<"mine" | "upcoming" | "catalog">("mine");
   const [name, setName] = useState("");
-  const drops = [...(p.secretLair ?? [])].sort((a, b) => (a.saleStart ?? "9").localeCompare(b.saleStart ?? "9"));
+  const [dropSort, setDropSort] = useSort<DropSort>("following", "sale");
+  const drops = sortDrops(p.secretLair ?? [], dropSort);
   const canNotify = "Notification" in window;
 
   const add = () => {
@@ -70,6 +72,7 @@ export default function SecretLairPage() {
           <div className="card row gap">
             <input placeholder="Drop name, e.g. 'Secret Lair x …'" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 200 }} aria-label="New drop name" />
             <button className="btn primary" onClick={add}>+ Add upcoming drop</button>
+            <SortSelect value={dropSort} options={DROP_SORTS} onChange={setDropSort} />
           </div>
           {drops.length ? drops.map((d) => <DropCard key={d.id} drop={d} profile={p} />) : (
             <Empty>Add an upcoming drop above, or follow one from <button className="linkish" onClick={() => setTab("upcoming")}>Upcoming & announced</button>.</Empty>
@@ -246,12 +249,54 @@ function Owned({ drop: d }: { drop: SecretLairDrop }) {
   );
 }
 
+/** Remember each list's sort choice on this device. */
+function useSort<T extends string>(list: string, initial: T): [T, (v: T) => void] {
+  const key = `ew:sl-sort:${list}`;
+  const [v, setV] = useState<T>(() => {
+    try {
+      return (localStorage.getItem(key) as T | null) ?? initial;
+    } catch {
+      return initial;
+    }
+  });
+  const set = (x: T) => {
+    setV(x);
+    try {
+      localStorage.setItem(key, x);
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  return [v, set];
+}
+
+function SortSelect<T extends string>({ value, options, onChange }: { value: T; options: { key: T; label: string }[]; onChange: (v: T) => void }) {
+  return (
+    <label className="row gap small">
+      Sort
+      <select value={value} onChange={(e) => onChange(e.target.value as T)} aria-label="Sort drops">
+        {options.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+const isFollowed = (drops: SecretLairDrop[], g: SecretLairGroup) =>
+  drops.some((d) => (g.cardIds.length > 0 && d.cardIds.join() === g.cardIds.join()) || d.name.toLowerCase() === g.name.toLowerCase());
+
 function followGroup(g: SecretLairGroup) {
   const cat = getState().profile?.secretLairCatalog;
   cacheCards(g.cardIds.map((id) => cat?.cards[id]).filter((c): c is CardSummary => !!c));
-  const existing = getState().profile?.secretLair?.find((d) => d.cardIds.join() === g.cardIds.join());
-  if (!existing) update((cur) => ({ ...cur, secretLair: [newDrop(g.name, { cardIds: g.cardIds, marked: false, announcementUrl: g.announcementUrl }), ...(cur.secretLair ?? [])] }));
+  if (isFollowed(getState().profile?.secretLair ?? [], g)) return;
+  const d = newDrop(g.name, {
+    cardIds: g.cardIds, marked: !!g.saleStart, announcementUrl: g.announcementUrl,
+    saleStart: g.saleStart, price: g.price, foilPrice: g.foilPrice, url: g.url, notes: g.notes,
+  });
+  update((cur) => ({ ...cur, secretLair: [d, ...(cur.secretLair ?? [])] }));
 }
+
+const sourceLabel = (g: SecretLairGroup) =>
+  (g.sources ?? ["scryfall"]).map((s) => (s === "calendar" ? "EquipWorthy calendar" : "Scryfall")).join(" + ");
 
 const fmtDay = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 
@@ -346,24 +391,25 @@ function Upcoming({ onFollowed }: { onFollowed: () => void }) {
   const { busy, err, load } = useCatalogLoader();
   const cat = p.secretLairCatalog;
   const now = new Date();
-  const groups = cat ? upcomingGroups(cat.groups, now) : [];
+  const [sort, setSort] = useSort<GroupSort>("upcoming", "soonest");
+  const base = cat ? upcomingGroups(cat.groups, now) : [];
+  const groups = cat ? sortGroups(base, sort, { cards: cat.cards, reprints: cat.reprints }) : [];
   const trend = cat ? pastDropTrend(cat, now) : null;
-  const following = new Set((p.secretLair ?? []).map((d) => d.cardIds.join()));
   const [checking, setChecking] = useState(false);
-  const groupKey = groups.map((g) => g.key).join();
+  const groupKey = base.map((g) => g.key).join();
   useEffect(() => {
-    if (!cat || !groups.length) return;
+    if (!cat || !base.length) return;
     setChecking(true);
-    loadReprints(groups.flatMap((g) => g.cardIds.map((id) => cat.cards[id]))).catch(() => undefined).finally(() => setChecking(false));
+    loadReprints(base.flatMap((g) => g.cardIds.map((id) => cat.cards[id]))).catch(() => undefined).finally(() => setChecking(false));
   }, [groupKey]);
   return (
     <>
       <div className="card row gap">
         <span className="small" style={{ flex: 1, minWidth: 200 }}>
-          Drops show up here as soon as their cards are previewed, with a link to the announcement. Follow one to set its sale time and get reminders.
+          Drops from Scryfall (every Secret Lair set, as soon as cards are previewed) and the <a href={CALENDAR_EDIT_URL} target="_blank" rel="noreferrer">EquipWorthy drop calendar</a>, which has sale times and prices for announced drops.
         </span>
+        <SortSelect value={sort} options={GROUP_SORTS} onChange={setSort} />
         <button className="btn" onClick={() => void load()} disabled={!!busy}>{busy ?? "Reload"}</button>
-        <a className="btn" href={STORE_URL} target="_blank" rel="noreferrer">Secret Lair store ↗</a>
       </div>
       {trend && (
         <p className="small">
@@ -374,32 +420,47 @@ function Upcoming({ onFollowed }: { onFollowed: () => void }) {
       {checking && <p className="muted small">Checking prices of other printings…</p>}
       {!cat && !busy && <Empty>Loading Secret Lair drops…</Empty>}
       {cat && !groups.length && <Empty>No announced or recent drops found. Check back after the next Secret Lair announcement.</Empty>}
-      {groups.map((g) => {
-        const upcoming = isUpcoming(g, now);
-        const followed = following.has(g.cardIds.join());
-        return (
-          <div key={g.key} className="card">
-            <div className="row between" style={{ alignItems: "flex-start" }}>
-              <div>
-                <b>{g.name}</b>
-                <div className="muted small">
-                  {upcoming && <><span className="pill">Upcoming</span>{" "}</>}
-                  {g.announcedAt && <>Announced {fmtDay(g.announcedAt)}{g.announcementSource && <> by {g.announcementSource}</>} · </>}
-                  {upcoming ? "Release" : "Released"} {fmtDay(g.releasedAt)} · {g.cardIds.length} card{g.cardIds.length === 1 ? "" : "s"}
-                </div>
-              </div>
-              <div className="hand">{g.cardIds.slice(0, 6).map((id) => <Link key={id} to={`/card/${id}`}><Thumb card={cat!.cards[id]} size={44} /></Link>)}</div>
-            </div>
-            <div className="row gap" style={{ margin: "0.5rem 0" }}>
-              {g.announcementUrl && <a className="btn small" href={g.announcementUrl} target="_blank" rel="noreferrer">Announcement ↗</a>}
-              <a className="btn small" href={scryfallGroupUrl(g, cat!.cards)} target="_blank" rel="noreferrer">Cards on Scryfall ↗</a>
-              {followed ? <span className="pill">Following</span> : <button className="btn small primary" onClick={() => (followGroup(g), onFollowed())}>Follow</button>}
-            </div>
-            <PriceCompare cardIds={g.cardIds} cards={cat!.cards} compact />
-          </div>
-        );
-      })}
+      {groups.map((g) => <UpcomingCard key={g.key} group={g} cards={cat!.cards} followed={isFollowed(p.secretLair ?? [], g)} now={now} onFollow={() => (followGroup(g), onFollowed())} />)}
     </>
+  );
+}
+
+const CALENDAR_EDIT_URL = "https://github.com/anewbyss/EQUIPWORTHY/blob/main/web/public/secret-lair-drops.json";
+
+function UpcomingCard({ group: g, cards, followed, now, onFollow }: { group: SecretLairGroup; cards: Record<string, CardSummary>; followed: boolean; now: Date; onFollow: () => void }) {
+  const upcoming = isUpcoming(g, now);
+  const when = g.saleStart
+    ? `On sale ${new Date(g.saleStart).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+    : `${upcoming ? "Release" : "Released"} ${fmtDay(g.releasedAt)}`;
+  const count = g.cardIds.length || g.cardCount;
+  return (
+    <div className="card">
+      <div className="row between" style={{ alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <b>{g.name}</b>
+          <div className="muted small">
+            {upcoming && <><span className="pill">Upcoming</span>{" "}</>}
+            {g.tentative && <><span className="pill">Date not confirmed</span>{" "}</>}
+            {when}
+            {g.price != null && <> · {usd(g.price)}{g.foilPrice != null && <> / foil {usd(g.foilPrice)}</>}</>}
+            {count ? <> · {count} card{count === 1 ? "" : "s"}</> : null}
+            {g.announcedAt && <> · Announced {fmtDay(g.announcedAt)}{g.announcementSource && <> by {g.announcementSource}</>}</>}
+          </div>
+          {g.notes && <div className="small" style={{ marginTop: "0.25rem" }}>{g.notes}</div>}
+          <div className="muted small">From {sourceLabel(g)}</div>
+        </div>
+        <div className="hand">{g.cardIds.slice(0, 6).map((id) => <Link key={id} to={`/card/${id}`}><Thumb card={cards[id]} size={44} /></Link>)}</div>
+      </div>
+      <div className="row gap" style={{ margin: "0.5rem 0" }}>
+        {g.announcementUrl && <a className="btn small" href={g.announcementUrl} target="_blank" rel="noreferrer">Announcement ↗</a>}
+        {g.url && <a className="btn small" href={g.url} target="_blank" rel="noreferrer">Product page ↗</a>}
+        {g.cardIds.length > 0 && <a className="btn small" href={scryfallGroupUrl(g, cards)} target="_blank" rel="noreferrer">Cards on Scryfall ↗</a>}
+        {followed ? <span className="pill">Following</span> : <button className="btn small primary" onClick={onFollow}>{g.saleStart ? "Follow & remind me" : "Follow"}</button>}
+      </div>
+      {g.cardIds.length > 0
+        ? <PriceCompare cardIds={g.cardIds} cards={cards} price={g.price} foilPrice={g.foilPrice} compact />
+        : <p className="muted small">Cards aren't on Scryfall yet, so there's no price check. It appears here automatically once they're listed.</p>}
+    </div>
   );
 }
 
@@ -407,20 +468,23 @@ function Catalog({ onFollowed }: { onFollowed: () => void }) {
   const p = useProfile();
   const { busy, err, load } = useCatalogLoader();
   const [q, setQ] = useState("");
+  const [sort, setSort] = useSort<GroupSort>("all", "latest");
   const cat = p.secretLairCatalog;
 
   const follow = (g: SecretLairGroup) => (followGroup(g), onFollowed());
 
-  const groups = (cat?.groups ?? []).filter((g) => !q || g.name.toLowerCase().includes(q.toLowerCase()) || g.cardIds.some((id) => cat!.cards[id]?.name.toLowerCase().includes(q.toLowerCase())));
+  const filtered = (cat?.groups ?? []).filter((g) => !q || g.name.toLowerCase().includes(q.toLowerCase()) || g.cardIds.some((id) => cat!.cards[id]?.name.toLowerCase().includes(q.toLowerCase())));
+  const groups = cat ? sortGroups(filtered, sort, { cards: cat.cards, reprints: cat.reprints }) : [];
   return (
     <>
       <div className="card row gap">
+        <SortSelect value={sort} options={GROUP_SORTS.filter((o) => o.key !== "deal")} onChange={setSort} />
         <input placeholder="Filter by card name" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: 1, minWidth: 180 }} aria-label="Filter drops" />
         <button className="btn" onClick={() => void load()} disabled={!!busy}>{busy ?? "Reload"}</button>
         {cat && <span className="muted small">Updated {new Date(cat.fetchedAt).toLocaleDateString()} · {Object.keys(cat.cards).length} cards</span>}
       </div>
       <p className="muted small">
-        Grouped from Scryfall's Secret Lair listings by release date and collector number. Scryfall doesn't name drops, so groups are named after their cards; rename them after you follow one. Upcoming drops appear once their cards are previewed.
+        From Scryfall's Secret Lair sets and the EquipWorthy drop calendar. Secret Lair Drop cards are grouped by release date and collector number; Scryfall doesn't name those drops, so they're named after their cards (rename them after you follow one).
       </p>
       {err && <p className="error small">{err}</p>}
       {!cat && !busy && <Empty>Loading Secret Lair drops…</Empty>}
@@ -432,7 +496,7 @@ function Catalog({ onFollowed }: { onFollowed: () => void }) {
             <div key={g.key} className="card drop-tile">
               <div className="hand">{g.cardIds.slice(0, 4).map((id) => <Link key={id} to={`/card/${id}`}><Thumb card={cat!.cards[id]} size={44} /></Link>)}</div>
               <b className="small">{g.name}</b>
-              <span className="muted small">{g.releasedAt} · {g.cardIds.length} card{g.cardIds.length === 1 ? "" : "s"}</span>
+              <span className="muted small">{g.releasedAt} · {g.cardIds.length || g.cardCount || 0} card{(g.cardIds.length || g.cardCount) === 1 ? "" : "s"}{g.price != null && <> · {usd(g.price)}</>}</span>
               <span className="small">Worth {usd(v.total)}{fv.total > v.total && <> · foil {usd(fv.total)}</>}</span>
               <button className="btn small" onClick={() => follow(g)}>Follow</button>
             </div>
