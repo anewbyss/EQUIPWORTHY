@@ -63,6 +63,7 @@ public enum SyncMerge {
         var q = p
         q.cardCache = [:]
         q.market = nil
+        q.secretLairCatalog = nil
         return q
     }
 
@@ -81,6 +82,7 @@ public enum SyncMerge {
         m.trades = list(base?.trades, local.trades, remote.trades, key: \.id, preferLocal: preferLocal)
         m.pendingBatch = list(base?.pendingBatch, local.pendingBatch ?? [], remote.pendingBatch ?? [], key: \.key, preferLocal: preferLocal)
         m.game = value(base?.game, local.game, remote.game, preferLocal: preferLocal)
+        m.secretLair = list(base?.secretLair, local.secretLair ?? [], remote.secretLair ?? [], key: \.id, preferLocal: preferLocal)
         var history: [String: PriceSeries] = [:]
         for k in Set(local.priceHistory.keys).union(remote.priceHistory.keys) {
             history[k] = preferLocal ? series(local.priceHistory[k], remote.priceHistory[k]) : series(remote.priceHistory[k], local.priceHistory[k])
@@ -93,6 +95,7 @@ public enum SyncMerge {
         m.updatedAt = preferLocal ? local.updatedAt : remote.updatedAt
         m.cardCache = [:]
         m.market = nil
+        m.secretLairCatalog = nil
         return m
     }
 }

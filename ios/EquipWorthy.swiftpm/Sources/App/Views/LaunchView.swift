@@ -5,7 +5,7 @@ import EquipWorthyKit
 
 /// Every screen in the app, used by the launch page.
 enum AppScreen: String, CaseIterable, Identifiable, Hashable {
-    case dashboard, search, collection, batch, scan, decks, watchlist, market, trade, life, sets, settings
+    case dashboard, search, collection, batch, scan, decks, watchlist, market, secretLair, trade, life, sets, settings
     var id: String { rawValue }
 
     var title: String {
@@ -18,6 +18,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         case .decks: return "Decks"
         case .watchlist: return "Watchlist"
         case .market: return "Market Watch"
+        case .secretLair: return "Secret Lair"
         case .trade: return "Trade Scale"
         case .life: return "Life & Dice"
         case .sets: return "Sets & Spoilers"
@@ -35,6 +36,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         case .decks: return "Build, check legality, see what to buy"
         case .watchlist: return "Price targets and alerts"
         case .market: return "Fast movers and synergy picks"
+        case .secretLair: return "Drop reminders, launch link, line tracker"
         case .trade: return "Balance a trade, store trade-in"
         case .life: return "Life, commander damage, dice"
         case .sets: return "Upcoming sets and every release"
@@ -52,6 +54,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         case .decks: return "rectangle.stack"
         case .watchlist: return "bell"
         case .market: return "chart.line.uptrend.xyaxis.circle"
+        case .secretLair: return "star.square.on.square"
         case .trade: return "scalemass"
         case .life: return "heart.circle"
         case .sets: return "sparkles.rectangle.stack"
@@ -62,7 +65,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
     var color: Color {
         switch self {
         case .dashboard, .batch, .watchlist, .sets: return Theme.sky
-        case .search, .scan, .trade, .settings: return Theme.violet
+        case .search, .scan, .trade, .settings, .secretLair: return Theme.violet
         case .collection, .decks, .life, .market: return Theme.gold
         }
     }
@@ -77,6 +80,7 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
         case .decks: DecksView()
         case .watchlist: WatchlistView()
         case .market: MarketView()
+        case .secretLair: SecretLairView()
         case .trade: TradeView()
         case .life: LifeTrackerView()
         case .sets: SetsView()
@@ -103,6 +107,8 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
             return p.watchlist.isEmpty ? nil : "\(p.watchlist.count) watched"
         case .life:
             return p.game.map { "Turn \($0.turn) in progress" }
+        case .secretLair:
+            return LaunchView.nextDropText(p)
         case .market:
             guard let m = p.market else { return nil }
             if !m.movers.isEmpty { return "\(m.movers.count) fast mover\(m.movers.count == 1 ? "" : "s")" }
@@ -115,6 +121,16 @@ enum AppScreen: String, CaseIterable, Identifiable, Hashable {
 
 @MainActor
 struct LaunchView: View {
+    static func nextDropText(_ p: Profile) -> String? {
+        let now = Date()
+        let upcoming = (p.secretLair ?? []).compactMap { d -> (SecretLairDrop, Date)? in
+            guard d.marked, let s = d.saleStart, let t = parseISO(s), t.timeIntervalSince(now) > -7200 else { return nil }
+            return (d, t)
+        }.sorted { $0.1 < $1.1 }
+        guard let next = upcoming.first else { return (p.secretLair ?? []).isEmpty ? nil : "\(p.secretLair!.count) followed" }
+        return next.1 <= now ? "\(next.0.name): LIVE" : "Next: \(next.1.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+
     @EnvironmentObject var store: ProfileStore
     @State private var picked: CardSummary?
 

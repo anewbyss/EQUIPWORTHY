@@ -128,9 +128,11 @@ public actor Scryfall {
         return try await send(URLRequest(url: c.url!), t)
     }
 
-    public func search(_ q: String, unique: String = "cards", order: String = "name", page: Int = 1) async throws -> (cards: [CardSummary], total: Int, hasMore: Bool) {
+    public func search(_ q: String, unique: String = "cards", order: String = "name", dir: String? = nil, page: Int = 1) async throws -> (cards: [CardSummary], total: Int, hasMore: Bool) {
         do {
-            let r = try await get("cards/search", ["q": q, "unique": unique, "order": order, "page": String(page)], decoding: ListResponse<RawCard>.self)
+            var query = ["q": q, "unique": unique, "order": order, "page": String(page)]
+            if let dir { query["dir"] = dir }
+            let r = try await get("cards/search", query, decoding: ListResponse<RawCard>.self)
             return (r.data.map(\.summary), r.total_cards ?? r.data.count, r.has_more ?? false)
         } catch let e as ScryfallError where e.status == 404 {
             return ([], 0, false)

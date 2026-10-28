@@ -198,6 +198,7 @@ final class ProfileStore: ObservableObject {
         var p = merged
         p.cardCache = profile.cardCache
         p.market = profile.market
+        p.secretLairCatalog = profile.secretLairCatalog
         profile = p
         dirty = true
         await save(quiet: true)
