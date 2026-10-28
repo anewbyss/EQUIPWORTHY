@@ -41,7 +41,9 @@ jobs:
       - name: Download Scryfall prices
         run: |
           url=$(curl -sSf -H "User-Agent: EquipWorthy-market-scan/1.0" -H "Accept: application/json" \
-            https://api.scryfall.com/bulk-data/default-cards | jq -r .download_uri)
+            https://api.scryfall.com/bulk-data | jq -r '.data[] | select(.type == "default_cards") | .download_uri')
+          if [ -z "$url" ] || [ "$url" = "null" ]; then echo "::error::Scryfall didn't list a default_cards bulk file"; exit 1; fi
+          echo "Downloading $url"
           curl -sSfL --compressed -H "User-Agent: EquipWorthy-market-scan/1.0" "$url" -o default-cards.json
           ls -lh default-cards.json
 
