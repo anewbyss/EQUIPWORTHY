@@ -6,7 +6,7 @@ An all-purpose Magic: The Gathering app for tracking card prices, forecasting pr
 |---|---|
 | **Prices** | TCGplayer market prices in USD (via Scryfall), daily history, movers, watchlist alerts, portfolio value |
 | **Market Watch** | Daily automatic price updates plus a refresh button everywhere, alerts when cards spike or crash, a market-wide scan of popular Commander cards, and synergy picks for cards likely to rise because of new sets |
-| **Secret Lair** | Follow drops, reminders up to launch with a one-tap link to the drop, a pre-sale checklist, a place-in-line ETA tracker, and drop value against price |
+| **Secret Lair** | Upcoming and announced drops with announcement links and pre-drop price checks against other printings. Follow drops, reminders up to launch (in-app, push alerts, texts or calendar) with a one-tap link to the drop, a pre-sale checklist, a place-in-line ETA tracker, and drop value against price |
 | **Forecasts** | 7- and 30-day direction and size estimates with an 80% range, a confidence level and a "why" breakdown, plus a running accuracy score |
 | **Collection** | Printings, finishes, condition, language, binders, location, purchase price, set completion, wishlist, exports |
 | **Batch entry** | Paste lists, set-grid collector numbers, CSV import from Moxfield/ManaBox/Deckbox/etc., and a review queue that survives reloads |

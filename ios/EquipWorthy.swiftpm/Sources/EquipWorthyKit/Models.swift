@@ -43,6 +43,13 @@ public struct Prices: Codable, Hashable, Sendable {
     }
 }
 
+public struct CardPreview: Codable, Hashable, Sendable {
+    public var source: String?
+    public var url: String?
+    public var at: String?
+    public init(source: String? = nil, url: String? = nil, at: String? = nil) { self.source = source; self.url = url; self.at = at }
+}
+
 public struct CardSummary: Codable, Hashable, Identifiable, Sendable {
     public var id: String
     public var oracleId: String?
@@ -71,6 +78,8 @@ public struct CardSummary: Codable, Hashable, Identifiable, Sendable {
     public var oracleText: String?
     public var printsCount: Int?
     public var keywords: [String]?
+    /// Where the card was first shown (announcement page), from Scryfall.
+    public var preview: CardPreview?
     public var fetchedAt: String
 
     public init(id: String, oracleId: String? = nil, name: String, set: String, setName: String = "", collectorNumber: String,
@@ -79,14 +88,14 @@ public struct CardSummary: Codable, Hashable, Identifiable, Sendable {
                 releasedAt: String = "2000-01-01", reserved: Bool = false, reprint: Bool = false, edhrecRank: Int? = nil,
                 legalities: [String: String] = [:], prices: Prices = Prices(), finishes: [Finish] = [.nonfoil],
                 tcgplayerUrl: String? = nil, edhrecUrl: String? = nil, scryfallUrl: String? = nil, oracleText: String? = nil,
-                printsCount: Int? = nil, keywords: [String]? = nil, fetchedAt: String = "") {
+                printsCount: Int? = nil, keywords: [String]? = nil, preview: CardPreview? = nil, fetchedAt: String = "") {
         self.id = id; self.oracleId = oracleId; self.name = name; self.set = set; self.setName = setName
         self.collectorNumber = collectorNumber; self.rarity = rarity; self.typeLine = typeLine; self.manaCost = manaCost
         self.cmc = cmc; self.colors = colors; self.colorIdentity = colorIdentity; self.image = image; self.imageSmall = imageSmall
         self.releasedAt = releasedAt; self.reserved = reserved; self.reprint = reprint; self.edhrecRank = edhrecRank
         self.legalities = legalities; self.prices = prices; self.finishes = finishes; self.tcgplayerUrl = tcgplayerUrl
         self.edhrecUrl = edhrecUrl; self.scryfallUrl = scryfallUrl; self.oracleText = oracleText
-        self.printsCount = printsCount; self.keywords = keywords; self.fetchedAt = fetchedAt
+        self.printsCount = printsCount; self.keywords = keywords; self.preview = preview; self.fetchedAt = fetchedAt
     }
 
     public func price(_ finish: Finish) -> Double? {
@@ -261,6 +270,14 @@ public struct AppSettings: Codable, Hashable, Sendable {
     /// Daily scan of popular Commander cards for market-wide movers and synergy picks.
     public var marketScan: Bool = true
     public var marketUniverse: Int = 525
+    /// Push alerts through the free ntfy app.
+    public var ntfyEnabled: Bool = false
+    public var ntfyServer: String = "https://ntfy.sh"
+    public var ntfyTopic: String?
+    /// Text messages through your own EquipWorthy SMS worker (Twilio).
+    public var smsEnabled: Bool = false
+    public var smsWorkerUrl: String?
+    public var smsKey: String?
 
     public init() {}
 
@@ -280,6 +297,12 @@ public struct AppSettings: Codable, Hashable, Sendable {
         moverMinPrice = try c.decodeIfPresent(Double.self, forKey: .moverMinPrice) ?? d.moverMinPrice
         marketScan = try c.decodeIfPresent(Bool.self, forKey: .marketScan) ?? d.marketScan
         marketUniverse = try c.decodeIfPresent(Int.self, forKey: .marketUniverse) ?? d.marketUniverse
+        ntfyEnabled = try c.decodeIfPresent(Bool.self, forKey: .ntfyEnabled) ?? d.ntfyEnabled
+        ntfyServer = try c.decodeIfPresent(String.self, forKey: .ntfyServer) ?? d.ntfyServer
+        ntfyTopic = try c.decodeIfPresent(String.self, forKey: .ntfyTopic)
+        smsEnabled = try c.decodeIfPresent(Bool.self, forKey: .smsEnabled) ?? d.smsEnabled
+        smsWorkerUrl = try c.decodeIfPresent(String.self, forKey: .smsWorkerUrl)
+        smsKey = try c.decodeIfPresent(String.self, forKey: .smsKey)
     }
 
     public func multiplier(_ c: Condition) -> Double { conditionMultipliers[c.rawValue] ?? 1 }

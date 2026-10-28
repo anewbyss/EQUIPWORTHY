@@ -80,6 +80,7 @@ export interface RawCard {
   oracle_text?: string;
   prints_search_uri?: string;
   keywords?: string[];
+  preview?: { source?: string; source_uri?: string; previewed_at?: string };
 }
 
 interface List<T> {
@@ -90,6 +91,7 @@ interface List<T> {
   not_found?: unknown[];
 }
 
+const httpsOnly = (u?: string) => (u && /^https:\/\//i.test(u) ? u : undefined);
 const num = (v?: string | null) => (v == null || v === "" ? undefined : Number(v));
 
 export function toSummary(c: RawCard): CardSummary {
@@ -121,6 +123,7 @@ export function toSummary(c: RawCard): CardSummary {
     scryfallUrl: c.scryfall_uri,
     oracleText: c.oracle_text ?? c.card_faces?.map((f) => f.oracle_text).filter(Boolean).join("\n//\n"),
     keywords: c.keywords,
+    preview: c.preview ? { source: c.preview.source, url: httpsOnly(c.preview.source_uri), at: c.preview.previewed_at } : undefined,
     fetchedAt: new Date().toISOString(),
   };
 }

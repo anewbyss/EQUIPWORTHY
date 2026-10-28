@@ -6,6 +6,7 @@ import EquipWorthyKit
 @MainActor
 struct RootView: View {
     @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var channels: ReminderChannels
 
     var body: some View {
         TabView {
@@ -23,7 +24,11 @@ struct RootView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) { LaunchStripView() }
         .task { SecretLairNotifier.reschedule(store.profile.secretLair ?? []) }
-        .onChange(of: store.profile.secretLair) { _, drops in SecretLairNotifier.reschedule(drops ?? []) }
+        .onChange(of: store.profile.secretLair) { _, drops in
+            SecretLairNotifier.reschedule(drops ?? [])
+            Task { await channels.sync() }
+        }
+        .onChange(of: store.profile.settings) { _, _ in Task { await channels.sync() } }
     }
 }
 

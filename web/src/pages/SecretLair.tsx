@@ -4,11 +4,12 @@ import { Empty, PageHeader, Thumb } from "../components/ui";
 import { usd } from "../lib/deckstats";
 import { applySnapshot } from "../lib/prices";
 import {
-  ACCOUNT_URL, CHECKLIST, STORE_URL, countdown, dropState, dropValue, etaText, isChecked, launchUrl, newDrop, queueEstimate, readiness,
+  ACCOUNT_URL, CHECKLIST, STORE_URL, TYPICAL_PRICE, compareDrop, compareSummary, countdown, dropState, dropValue, etaText, icsFor, isChecked, isUpcoming,
+  launchUrl, newDrop, pastDropTrend, queueEstimate, readiness, scryfallGroupUrl, upcomingGroups,
 } from "../lib/secretlair";
-import { catalogStale, loadCatalog, tick } from "../lib/secretLairRunner";
-import { cacheCards, getState, update, useProfile } from "../lib/store";
-import { FINISHES, uid, type Finish, type Profile, type SecretLairDrop } from "../lib/types";
+import { catalogStale, loadCatalog, loadReprints, tick } from "../lib/secretLairRunner";
+import { cacheCards, download, getState, update, useProfile } from "../lib/store";
+import { FINISHES, uid, type CardSummary, type Finish, type Profile, type SecretLairDrop, type SecretLairGroup } from "../lib/types";
 
 const toLocalInput = (iso?: string) => {
   if (!iso) return "";
@@ -33,7 +34,7 @@ function useClock(ms = 1000) {
 
 export default function SecretLairPage() {
   const p = useProfile();
-  const [tab, setTab] = useState<"mine" | "catalog">("mine");
+  const [tab, setTab] = useState<"mine" | "upcoming" | "catalog">("mine");
   const [name, setName] = useState("");
   const drops = [...(p.secretLair ?? [])].sort((a, b) => (a.saleStart ?? "9").localeCompare(b.saleStart ?? "9"));
   const canNotify = "Notification" in window;
@@ -54,13 +55,14 @@ export default function SecretLairPage() {
         <div className="card row gap">
           <span>🔔 Turn on notifications to get sale reminders and "you're almost through" alerts.</span>
           <button className="btn primary small" onClick={() => void Notification.requestPermission()}>Enable notifications</button>
-          <span className="muted small">Reminders only fire while EquipWorthy is open (a Home Screen app or a browser tab). For reminders when it's closed, use the iPhone app.</span>
+          <span className="muted small">Browser reminders only fire while EquipWorthy is open. For reminders when it's closed, turn on push alerts or texts in <Link to="/settings">Settings → Reminder delivery</Link>, or use 📅 Add to calendar.</span>
         </div>
       )}
 
       <div className="tabs">
         <button className={tab === "mine" ? "on" : ""} onClick={() => setTab("mine")}>Following ({drops.length})</button>
-        <button className={tab === "catalog" ? "on" : ""} onClick={() => setTab("catalog")}>Recent drops</button>
+        <button className={tab === "upcoming" ? "on" : ""} onClick={() => setTab("upcoming")}>Upcoming & announced</button>
+        <button className={tab === "catalog" ? "on" : ""} onClick={() => setTab("catalog")}>All drops</button>
       </div>
 
       {tab === "mine" && (
@@ -70,10 +72,11 @@ export default function SecretLairPage() {
             <button className="btn primary" onClick={add}>+ Add upcoming drop</button>
           </div>
           {drops.length ? drops.map((d) => <DropCard key={d.id} drop={d} profile={p} />) : (
-            <Empty>Add an upcoming drop above, or follow one from <button className="linkish" onClick={() => setTab("catalog")}>Recent drops</button>.</Empty>
+            <Empty>Add an upcoming drop above, or follow one from <button className="linkish" onClick={() => setTab("upcoming")}>Upcoming & announced</button>.</Empty>
           )}
         </>
       )}
+      {tab === "upcoming" && <Upcoming onFollowed={() => setTab("mine")} />}
       {tab === "catalog" && <Catalog onFollowed={() => setTab("mine")} />}
     </>
   );
@@ -118,7 +121,13 @@ function DropCard({ drop: d, profile: p }: { drop: SecretLairDrop; profile: Prof
         <a className={`btn ${state === "live" || state === "soon" ? "primary launch-btn" : ""}`} href={launchUrl(d)} target="_blank" rel="noreferrer">
           {state === "live" ? "Open the drop now ↗" : "Open drop page ↗"}
         </a>
+        {d.announcementUrl && <a className="btn small" href={d.announcementUrl} target="_blank" rel="noreferrer">Announcement ↗</a>}
         <label className="row gap small"><input type="checkbox" checked={d.marked} onChange={(e) => set({ marked: e.target.checked })} /> Remind me</label>
+        {d.saleStart && (
+          <button className="btn small" onClick={() => { const ics = icsFor(d); if (ics) download(`${d.name.replace(/[^\w]+/g, "-")}.ics`, ics, "text/calendar"); }} title="Adds the sale to your calendar with alerts 24h, 1h, 15m and 5m before and at launch">
+            📅 Add to calendar
+          </button>
+        )}
         <span className="pill">{Math.round(ready * 100)}% ready</span>
         {d.cardIds.length > 0 && (
           <span className="small">
@@ -161,10 +170,14 @@ function DropCard({ drop: d, profile: p }: { drop: SecretLairDrop; profile: Prof
             <label className="small">Drop link (from the Secret Lair site or Wizards' announcement)
               <input placeholder="https://secretlair.wizards.com/…" value={d.url ?? ""} onChange={(e) => set({ url: e.target.value.trim() || undefined })} style={{ width: "100%" }} />
             </label>
+            <label className="small">Announcement link (optional)
+              <input placeholder="https://magic.wizards.com/…" value={d.announcementUrl ?? ""} onChange={(e) => { const v = e.target.value.trim(); set({ announcementUrl: /^https:\/\//i.test(v) ? v : undefined }); }} style={{ width: "100%" }} />
+            </label>
             <p className="muted small">Reminders: 24 hours, 1 hour, 15 minutes and 5 minutes before, then at launch, with a button to open the drop.</p>
             {d.cardIds.length > 0 && (
               <div className="hand">{d.cardIds.slice(0, 12).map((id) => <Link key={id} to={`/card/${id}`}><Thumb card={p.cardCache[id] ?? p.secretLairCatalog?.cards[id]} size={56} /></Link>)}</div>
             )}
+            {d.cardIds.length > 0 && <PriceCompare cardIds={d.cardIds} cards={{ ...p.secretLairCatalog?.cards, ...p.cardCache }} price={d.price} foilPrice={d.foilPrice} />}
             <Owned drop={d} />
             <button className="btn small danger" onClick={() => confirm(`Stop following ${d.name}?`) && update((cur) => ({ ...cur, secretLair: (cur.secretLair ?? []).filter((x) => x.id !== d.id) }))}>Remove drop</button>
           </div>
@@ -233,13 +246,19 @@ function Owned({ drop: d }: { drop: SecretLairDrop }) {
   );
 }
 
-function Catalog({ onFollowed }: { onFollowed: () => void }) {
-  const p = useProfile();
+function followGroup(g: SecretLairGroup) {
+  const cat = getState().profile?.secretLairCatalog;
+  cacheCards(g.cardIds.map((id) => cat?.cards[id]).filter((c): c is CardSummary => !!c));
+  const existing = getState().profile?.secretLair?.find((d) => d.cardIds.join() === g.cardIds.join());
+  if (!existing) update((cur) => ({ ...cur, secretLair: [newDrop(g.name, { cardIds: g.cardIds, marked: false, announcementUrl: g.announcementUrl }), ...(cur.secretLair ?? [])] }));
+}
+
+const fmtDay = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+
+/** Load the catalog when it's stale; shared by the Upcoming and All drops tabs. */
+function useCatalogLoader() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const cat = p.secretLairCatalog;
-
   const load = async () => {
     setErr(null);
     try {
@@ -253,14 +272,144 @@ function Catalog({ onFollowed }: { onFollowed: () => void }) {
   useEffect(() => {
     if (catalogStale()) void load();
   }, []);
+  return { busy, err, load };
+}
 
-  const follow = (g: NonNullable<typeof cat>["groups"][number]) => {
-    const cards = g.cardIds.map((id) => cat!.cards[id]).filter(Boolean);
-    cacheCards(cards);
-    const existing = getState().profile?.secretLair?.find((d) => d.cardIds.join() === g.cardIds.join());
-    if (!existing) update((cur) => ({ ...cur, secretLair: [newDrop(g.name, { cardIds: g.cardIds, marked: false }), ...(cur.secretLair ?? [])] }));
-    onFollowed();
+/** Pre-drop price comparison: drop price vs Secret Lair market vs cheapest other printings. */
+function PriceCompare({ cardIds, cards, price, foilPrice, compact }: { cardIds: string[]; cards: Record<string, CardSummary | undefined>; price?: number; foilPrice?: number; compact?: boolean }) {
+  const p = useProfile();
+  const reprints = p.secretLairCatalog?.reprints ?? {};
+  const [finish, setFinish] = useState<"nonfoil" | "foil">("nonfoil");
+  const [show, setShow] = useState(!compact);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const key = cardIds.join();
+  const fetchReprints = async (force = false) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await loadReprints(cardIds.map((id) => cards[id]), force);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
+  useEffect(() => {
+    if (!compact) void fetchReprints(); // compact tiles are fetched in one batch by their list
+  }, [key]);
+  const c = compareDrop(cardIds, cards, reprints, { finish, price: finish === "foil" ? foilPrice : price });
+  return (
+    <div className="compare">
+      <div className="row gap small">
+        <b>Price check</b>
+        <select value={finish} onChange={(e) => setFinish(e.target.value as "nonfoil" | "foil")} aria-label="Version">
+          <option value="nonfoil">Non-foil</option>
+          <option value="foil">Foil</option>
+        </select>
+        <span>{usd(c.price)}{c.priceIsTypical && <span className="muted"> (typical price)</span>}</span>
+        {compact && <button className="btn small" onClick={() => setShow(!show)}>{show ? "Hide" : "Compare prices"}</button>}
+        {busy && <span className="muted">Checking other printings…</span>}
+      </div>
+      <p className="small" style={{ margin: "0.3rem 0" }}>{compareSummary(c)}</p>
+      {show && (
+        <>
+          <div className="table-wrap">
+            <table className="small">
+              <thead><tr><th>Card</th><th>Secret Lair</th><th>Cheapest elsewhere</th></tr></thead>
+              <tbody>
+                {c.rows.map((r) => (
+                  <tr key={r.cardId}>
+                    <td><Link to={`/card/${r.cardId}`}>{r.name}</Link></td>
+                    <td>{r.sld != null ? usd(r.sld) : <span className="muted">no price yet</span>}</td>
+                    <td>{r.isNew ? <span className="pill">new card</span> : r.reprint != null ? <>{usd(r.reprint)} <span className="muted">{r.reprintSet}</span></> : <span className="muted">–</span>}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td><b>Total</b></td>
+                  <td><b>{c.sldPriced ? usd(c.sldTotal) : "–"}</b>{c.sldPriced > 0 && c.sldPriced < c.rows.length && <span className="muted"> ({c.sldPriced}/{c.rows.length})</span>}</td>
+                  <td><b>{c.reprintPriced ? usd(c.reprintTotal) : "–"}</b>{c.reprintPriced > 0 && c.reprintPriced < c.rows.length && <span className="muted"> ({c.reprintPriced}/{c.rows.length})</span>}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="muted small">Secret Lair prices are TCGplayer market or pre-order prices from Scryfall, which can be thin before a drop ships. "Cheapest elsewhere" is the cheapest {finish === "foil" ? "foil " : ""}copy in any other set. <button className="linkish" onClick={() => void fetchReprints(true)} disabled={busy}>Re-check</button></p>
+          {err && <p className="error small">{err}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Upcoming({ onFollowed }: { onFollowed: () => void }) {
+  const p = useProfile();
+  const { busy, err, load } = useCatalogLoader();
+  const cat = p.secretLairCatalog;
+  const now = new Date();
+  const groups = cat ? upcomingGroups(cat.groups, now) : [];
+  const trend = cat ? pastDropTrend(cat, now) : null;
+  const following = new Set((p.secretLair ?? []).map((d) => d.cardIds.join()));
+  const [checking, setChecking] = useState(false);
+  const groupKey = groups.map((g) => g.key).join();
+  useEffect(() => {
+    if (!cat || !groups.length) return;
+    setChecking(true);
+    loadReprints(groups.flatMap((g) => g.cardIds.map((id) => cat.cards[id]))).catch(() => undefined).finally(() => setChecking(false));
+  }, [groupKey]);
+  return (
+    <>
+      <div className="card row gap">
+        <span className="small" style={{ flex: 1, minWidth: 200 }}>
+          Drops show up here as soon as their cards are previewed, with a link to the announcement. Follow one to set its sale time and get reminders.
+        </span>
+        <button className="btn" onClick={() => void load()} disabled={!!busy}>{busy ?? "Reload"}</button>
+        <a className="btn" href={STORE_URL} target="_blank" rel="noreferrer">Secret Lair store ↗</a>
+      </div>
+      {trend && (
+        <p className="small">
+          📈 Past drops (2 months to 2 years old) are now worth a median <b className={trend.median >= 1 ? "up" : "down"}>{Math.round(trend.median * 100)}%</b> of the usual {usd(TYPICAL_PRICE.nonfoil)} price, across {trend.drops} drops.
+        </p>
+      )}
+      {err && <p className="error small">{err}</p>}
+      {checking && <p className="muted small">Checking prices of other printings…</p>}
+      {!cat && !busy && <Empty>Loading Secret Lair drops…</Empty>}
+      {cat && !groups.length && <Empty>No announced or recent drops found. Check back after the next Secret Lair announcement.</Empty>}
+      {groups.map((g) => {
+        const upcoming = isUpcoming(g, now);
+        const followed = following.has(g.cardIds.join());
+        return (
+          <div key={g.key} className="card">
+            <div className="row between" style={{ alignItems: "flex-start" }}>
+              <div>
+                <b>{g.name}</b>
+                <div className="muted small">
+                  {upcoming && <><span className="pill">Upcoming</span>{" "}</>}
+                  {g.announcedAt && <>Announced {fmtDay(g.announcedAt)}{g.announcementSource && <> by {g.announcementSource}</>} · </>}
+                  {upcoming ? "Release" : "Released"} {fmtDay(g.releasedAt)} · {g.cardIds.length} card{g.cardIds.length === 1 ? "" : "s"}
+                </div>
+              </div>
+              <div className="hand">{g.cardIds.slice(0, 6).map((id) => <Link key={id} to={`/card/${id}`}><Thumb card={cat!.cards[id]} size={44} /></Link>)}</div>
+            </div>
+            <div className="row gap" style={{ margin: "0.5rem 0" }}>
+              {g.announcementUrl && <a className="btn small" href={g.announcementUrl} target="_blank" rel="noreferrer">Announcement ↗</a>}
+              <a className="btn small" href={scryfallGroupUrl(g, cat!.cards)} target="_blank" rel="noreferrer">Cards on Scryfall ↗</a>
+              {followed ? <span className="pill">Following</span> : <button className="btn small primary" onClick={() => (followGroup(g), onFollowed())}>Follow</button>}
+            </div>
+            <PriceCompare cardIds={g.cardIds} cards={cat!.cards} compact />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function Catalog({ onFollowed }: { onFollowed: () => void }) {
+  const p = useProfile();
+  const { busy, err, load } = useCatalogLoader();
+  const [q, setQ] = useState("");
+  const cat = p.secretLairCatalog;
+
+  const follow = (g: SecretLairGroup) => (followGroup(g), onFollowed());
 
   const groups = (cat?.groups ?? []).filter((g) => !q || g.name.toLowerCase().includes(q.toLowerCase()) || g.cardIds.some((id) => cat!.cards[id]?.name.toLowerCase().includes(q.toLowerCase())));
   return (

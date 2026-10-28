@@ -348,3 +348,139 @@ final class SecretLairTests: XCTestCase {
         XCTAssertNil(SyncMerge.forSync(p).secretLairCatalog)
     }
 }
+
+final class ChannelsTests: XCTestCase {
+    let iso = ISO8601DateFormatter()
+    func at(_ s: String) -> Date { iso.date(from: s)! }
+
+    func drop() -> SecretLairDrop {
+        var d = SecretLairDrop(name: "Test Drop")
+        d.saleStart = "2026-11-01T17:00:00Z"
+        d.url = "https://secretlair.wizards.com/us/product/123"
+        return d
+    }
+
+    func testPlanned() {
+        let d = drop()
+        let plan = SecretLair.planned(d, now: at("2026-11-01T16:00:00Z"))
+        XCTAssertEqual(plan.map(\.key), ["15m", "5m", "open"])
+        XCTAssertEqual(plan.first?.id, "\(d.id)-15m")
+        XCTAssertEqual(plan.last?.url.absoluteString, d.url)
+        var owned = d
+        owned.owned = OwnedDrop(finish: .nonfoil, quantity: 1, paid: nil)
+        XCTAssertTrue(SecretLair.planned(owned, now: at("2026-11-01T16:00:00Z")).isEmpty)
+    }
+
+    func testNtfyPlanWindowAndDedup() {
+        var d = drop()
+        let early = Channels.ntfyPlan(d, now: at("2026-10-29T16:00:00Z"))
+        XCTAssertEqual(early.map(\.reminder.key), ["24h"])
+        let later = Channels.ntfyPlan(d, now: at("2026-10-30T18:00:00Z"))
+        XCTAssertEqual(later.map(\.tag), ["24h@2026-11-01T17:00:00Z", "1h@2026-11-01T17:00:00Z", "15m@2026-11-01T17:00:00Z", "5m@2026-11-01T17:00:00Z", "open@2026-11-01T17:00:00Z"])
+        d.pushScheduled = later.map(\.tag)
+        XCTAssertTrue(Channels.ntfyPlan(d, now: at("2026-10-30T18:00:00Z")).isEmpty)
+        d.saleStart = "2026-11-02T17:00:00Z"
+        XCTAssertFalse(Channels.ntfyPlan(d, now: at("2026-10-30T18:00:00Z")).isEmpty)
+    }
+
+    func testNtfyRequest() throws {
+        let r = try Channels.ntfyRequest(server: "https://ntfy.sh/", topic: "equipworthy-abc", title: "T", body: "B",
+                                         url: URL(string: "https://secretlair.wizards.com/"), at: Date(timeIntervalSince1970: 1_800_000_000))
+        XCTAssertEqual(r.url?.absoluteString, "https://ntfy.sh/equipworthy-abc")
+        XCTAssertEqual(r.value(forHTTPHeaderField: "At"), "1800000000")
+        XCTAssertEqual(r.value(forHTTPHeaderField: "Click"), "https://secretlair.wizards.com/")
+        XCTAssertEqual(r.httpBody, Data("B".utf8))
+    }
+
+    func testSmsPayloadAndRequest() throws {
+        let d = drop()
+        let p = Channels.smsPayload([d], previousIds: ["gone-24h", "\(d.id)-open"], now: at("2026-11-01T16:00:00Z"))
+        XCTAssertEqual(p.reminders.count, 3)
+        XCTAssertEqual(p.remove, ["gone-24h"])
+        XCTAssertTrue(p.reminders[0].body.hasPrefix("Secret Lair reminder: Test Drop"))
+        var s = AppSettings()
+        XCTAssertThrowsError(try Channels.smsRequest(s, path: "/test", body: Data()))
+        s.smsWorkerUrl = "https://ew-sms.example.workers.dev/"
+        s.smsKey = "k"
+        let r = try Channels.smsRequest(s, path: "/reminders", body: Data())
+        XCTAssertEqual(r.url?.absoluteString, "https://ew-sms.example.workers.dev/reminders")
+        XCTAssertEqual(r.value(forHTTPHeaderField: "Authorization"), "Bearer k")
+        s.smsWorkerUrl = "http://insecure.example"
+        XCTAssertThrowsError(try Channels.smsRequest(s, path: "/test", body: Data()))
+    }
+}
+
+final class UpcomingDropTests: XCTestCase {
+    let now = ISO8601DateFormatter().date(from: "2026-10-28T12:00:00Z")!
+
+    func card(_ id: String, _ cn: String, _ rel: String, set: String = "sld", setName: String = "Secret Lair Drop",
+              usd: Double? = nil, foil: Double? = nil, preview: CardPreview? = nil) -> CardSummary {
+        CardSummary(id: id, oracleId: "o-\(id)", name: "Card \(id)", set: set, setName: setName, collectorNumber: cn,
+                    releasedAt: rel, prices: Prices(usd: usd, usdFoil: foil), preview: preview)
+    }
+
+    func testAnnouncementFromPreviews() {
+        let g = SecretLair.groupDrops([
+            card("a", "200", "2026-11-20", preview: CardPreview(source: "Wizards", url: "https://magic.wizards.com/en/news/sl", at: "2026-10-20")),
+            card("b", "201", "2026-11-20", preview: CardPreview(at: "2026-10-19")),
+        ])
+        XCTAssertEqual(g[0].announcedAt, "2026-10-19")
+        XCTAssertEqual(g[0].announcementUrl, "https://magic.wizards.com/en/news/sl")
+        XCTAssertEqual(g[0].announcementSource, "Wizards")
+        XCTAssertNil(SecretLair.announcementURL("http://insecure.example"))
+    }
+
+    func testUpcomingOrder() {
+        let groups = SecretLair.groupDrops([card("old", "1", "2026-01-01"), card("recent", "50", "2026-10-15"), card("next", "90", "2026-12-01"), card("soon", "80", "2026-11-05")])
+        XCTAssertEqual(SecretLair.upcomingGroups(groups, now: now).map { $0.cardIds[0] }, ["recent", "soon", "next"])
+        XCTAssertTrue(SecretLair.isUpcoming(groups.first { $0.cardIds == ["soon"] }!, now: now))
+        XCTAssertFalse(SecretLair.isUpcoming(groups.first { $0.cardIds == ["recent"] }!, now: now))
+    }
+
+    func testCheapestReprint() {
+        let r = SecretLair.cheapestReprint([
+            card("x", "1", "", usd: 1),
+            card("y", "1", "", set: "m21", setName: "Core 2021", usd: 4, foil: 9),
+            card("z", "1", "", set: "cmr", setName: "Commander Legends", usd: 2.5),
+        ], now: now)
+        XCTAssertEqual(r.usd, 2.5)
+        XCTAssertEqual(r.usdFoil, 9)
+        XCTAssertEqual(r.setName, "Commander Legends")
+        XCTAssertEqual(r.printings, 2)
+        XCTAssertEqual(SecretLair.cheapestReprint([]).printings, 0)
+    }
+
+    func testCompareMatchesWeb() {
+        let cards = ["a": card("a", "1", "", usd: 20), "b": card("b", "2", "", usd: 15), "c": card("c", "3", "", usd: 5)]
+        let reprints = ["o-a": ReprintPrice(usd: 8, setName: "Set A", printings: 3), "o-b": ReprintPrice(usd: 2, printings: 1), "o-c": ReprintPrice(printings: 0)]
+        let c = SecretLair.compare(["a", "b", "c"], cards: cards, reprints: reprints)
+        XCTAssertEqual(c.price, 29.99)
+        XCTAssertTrue(c.priceIsTypical)
+        XCTAssertEqual(c.sldTotal, 40)
+        XCTAssertEqual(c.reprintTotal, 10)
+        XCTAssertEqual(c.reprintPriced, 2)
+        XCTAssertEqual(c.newCards, 1)
+        XCTAssertEqual(c.premium!, 19.99, accuracy: 0.001)
+        XCTAssertEqual(c.marketGap!, 10.01, accuracy: 0.001)
+        XCTAssertEqual(SecretLair.summary(c), "Secret Lair copies trade $10.01 above the price; the cards cost $19.99 less in other printings (2 of 3 cards); 1 new card with no other printing.")
+        let f = SecretLair.compare(["a"], cards: cards, reprints: reprints, foil: true, price: 5)
+        XCTAssertEqual(f.premium!, -3, accuracy: 0.001)
+        XCTAssertTrue(SecretLair.summary(SecretLair.compare(["a"], cards: ["a": card("a", "1", "")], reprints: [:])).hasPrefix("No prices yet"))
+        XCTAssertEqual(SecretLair.staleReprintIds([cards["a"], cards["b"], nil, cards["a"]], known: ["o-a": ReprintPrice(printings: 1, fetchedAt: isoNow(now))], now: now), ["o-b"])
+    }
+
+    func testPastDropTrend() {
+        var cards: [String: CardSummary] = [:]
+        var groups: [SecretLairGroup] = []
+        for i in 0..<3 {
+            let a = card("p\(i)a", "\(i * 10)", "2026-03-01", usd: 10 + Double(i) * 10)
+            let b = card("p\(i)b", "\(i * 10 + 1)", "2026-03-01", usd: 10)
+            cards[a.id] = a; cards[b.id] = b
+            groups.append(SecretLairGroup(key: "g\(i)", name: "", releasedAt: "2026-03-01", cardIds: [a.id, b.id]))
+        }
+        let t = SecretLair.pastDropTrend(SecretLairCatalog(cards: cards, groups: groups, fetchedAt: ""), now: now)!
+        XCTAssertEqual(t.drops, 3)
+        XCTAssertEqual(t.median, 30 / 29.99, accuracy: 0.0001)
+        XCTAssertNil(SecretLair.pastDropTrend(SecretLairCatalog(cards: cards, groups: Array(groups.prefix(2)), fetchedAt: ""), now: now))
+    }
+}

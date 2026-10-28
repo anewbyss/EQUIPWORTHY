@@ -19,6 +19,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: SMS worker tests
+        run: npx vitest run --root ../sms-worker
       - run: npm run build
 
   ios:

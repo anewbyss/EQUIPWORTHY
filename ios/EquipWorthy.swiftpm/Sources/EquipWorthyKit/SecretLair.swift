@@ -49,10 +49,14 @@ public struct SecretLairDrop: Codable, Hashable, Identifiable, Sendable {
     public var price: Double?
     public var foilPrice: Double?
     public var url: String?
+    /// Where the drop was announced or previewed.
+    public var announcementUrl: String?
     public var cardIds: [String]
     public var marked: Bool
     public var checklist: [String: Bool]
     public var remindersSent: [String]
+    /// ntfy reminders already scheduled, as "key@saleStart" (shared across devices).
+    public var pushScheduled: [String]?
     public var queue: QueueLog?
     public var owned: OwnedDrop?
     public var notes: String?
@@ -75,13 +79,34 @@ public struct SecretLairGroup: Codable, Hashable, Identifiable, Sendable {
     public var name: String
     public var releasedAt: String
     public var cardIds: [String]
+    /// YYYY-MM-DD the first card was previewed.
+    public var announcedAt: String?
+    public var announcementUrl: String?
+    public var announcementSource: String?
     public var id: String { key }
+}
+
+/// Cheapest copies of a card outside Secret Lair, for pre-drop price comparisons.
+public struct ReprintPrice: Codable, Hashable, Sendable {
+    public var usd: Double?
+    public var usdFoil: Double?
+    public var setName: String?
+    public var printings: Int
+    public var fetchedAt: String
+    public init(usd: Double? = nil, usdFoil: Double? = nil, setName: String? = nil, printings: Int, fetchedAt: String = isoNow()) {
+        self.usd = usd; self.usdFoil = usdFoil; self.setName = setName; self.printings = printings; self.fetchedAt = fetchedAt
+    }
 }
 
 public struct SecretLairCatalog: Codable, Hashable, Sendable {
     public var cards: [String: CardSummary]
     public var groups: [SecretLairGroup]
     public var fetchedAt: String
+    /// By oracle id.
+    public var reprints: [String: ReprintPrice]?
+    public init(cards: [String: CardSummary], groups: [SecretLairGroup], fetchedAt: String, reprints: [String: ReprintPrice]? = nil) {
+        self.cards = cards; self.groups = groups; self.fetchedAt = fetchedAt; self.reprints = reprints
+    }
 }
 
 public struct QueueEstimate: Hashable, Sendable {
@@ -163,6 +188,29 @@ public enum SecretLair {
         Double(checklist.filter { isChecked(d, $0.key) }.count) / Double(checklist.count)
     }
 
+    // MARK: Reminder plan (shared by notifications, ntfy, texts)
+
+    public struct Planned: Hashable, Sendable {
+        public var id: String
+        public var key: String
+        public var at: Date
+        public var title: String
+        public var body: String
+        public var url: URL
+    }
+
+    /// Every reminder still ahead for a followed drop with a sale time.
+    public static func planned(_ d: SecretLairDrop, now: Date = Date()) -> [Planned] {
+        guard d.marked, d.owned == nil, let s = d.saleStart, let start = parseISO(s) else { return [] }
+        return reminders.compactMap { r in
+            let at = start.addingTimeInterval(-r.before)
+            guard at > now else { return nil }
+            return Planned(id: "\(d.id)-\(r.key)", key: r.key, at: at,
+                           title: r.key == "open" ? "Secret Lair drop is live" : "Secret Lair reminder",
+                           body: r.text(d.name), url: launchURL(d))
+        }
+    }
+
     // MARK: Place in line
 
     public static func estimate(_ q: QueueLog, now: Date = Date()) -> QueueEstimate? {
@@ -240,7 +288,12 @@ public enum SecretLair {
             var names: [String] = []
             for c in current where !names.contains(c.name) { names.append(c.name) }
             let label = names.prefix(2).joined(separator: ", ") + (names.count > 2 ? " +\(names.count - 2) more" : "")
-            groups.append(SecretLairGroup(key: "\(released)#\(first)", name: label, releasedAt: released, cardIds: current.map(\.id)))
+            let previewed = current.filter { $0.preview?.at != nil || $0.preview?.url != nil }
+                .sorted { ($0.preview?.at ?? "9") < ($1.preview?.at ?? "9") }
+            let linked = previewed.first { $0.preview?.url != nil }
+            groups.append(SecretLairGroup(key: "\(released)#\(first)", name: label, releasedAt: released, cardIds: current.map(\.id),
+                                          announcedAt: previewed.first?.preview?.at.map { String($0.prefix(10)) },
+                                          announcementUrl: linked?.preview?.url, announcementSource: linked?.preview?.source))
         }
         for (c, n) in sorted {
             if !current.isEmpty && released == c.releasedAt && n - last <= 1 {
@@ -252,5 +305,160 @@ public enum SecretLair {
         }
         flush()
         return groups.sorted { $0.releasedAt != $1.releasedAt ? $0.releasedAt > $1.releasedAt : $0.key > $1.key }
+    }
+
+    // MARK: Upcoming drops and pre-drop price comparison
+
+    /// Usual Secret Lair prices, used when a drop's price isn't known yet.
+    public static let typicalPrice: Double = 29.99
+    public static let typicalFoilPrice: Double = 39.99
+
+    public static func announcementURL(_ s: String?) -> URL? {
+        guard let s, s.lowercased().hasPrefix("https://") else { return nil }
+        return URL(string: s)
+    }
+
+    /// Scryfall search showing the cards in a drop group.
+    public static func scryfallURL(_ g: SecretLairGroup, cards: [String: CardSummary]) -> URL {
+        let nums = g.cardIds.compactMap { cards[$0]?.collectorNumber }.map { "cn:\($0)" }
+        var c = URLComponents(string: "https://scryfall.com/search")!
+        c.queryItems = [URLQueryItem(name: "q", value: "e:sld (\(nums.joined(separator: " or ")))"), URLQueryItem(name: "unique", value: "prints")]
+        return c.url!
+    }
+
+    /// Announced drops not yet released, plus ones released in the last `recentDays` days, soonest first.
+    public static func upcomingGroups(_ groups: [SecretLairGroup], now: Date = Date(), recentDays: Int = 30) -> [SecretLairGroup] {
+        let from = dayString(now.addingTimeInterval(-Double(recentDays) * 86400))
+        return groups.filter { $0.releasedAt >= from }
+            .sorted { $0.releasedAt != $1.releasedAt ? $0.releasedAt < $1.releasedAt : $0.key < $1.key }
+    }
+
+    public static func isUpcoming(_ g: SecretLairGroup, now: Date = Date()) -> Bool { g.releasedAt > dayString(now) }
+
+    /// Cheapest non-Secret Lair copies from a list of printings of one card.
+    public static func cheapestReprint(_ prints: [CardSummary], now: Date = Date()) -> ReprintPrice {
+        let paper = prints.filter { $0.set != "sld" }
+        let usd = paper.compactMap { $0.prices.usd }.filter { $0 > 0 }.min()
+        let foil = paper.compactMap { $0.prices.usdFoil }.filter { $0 > 0 }.min()
+        let setName = usd.flatMap { u in paper.first { $0.prices.usd == u }?.setName }
+        return ReprintPrice(usd: usd, usdFoil: foil, setName: setName, printings: paper.count, fetchedAt: isoNow(now))
+    }
+
+    public struct CompareRow: Hashable, Sendable, Identifiable {
+        public var cardId: String
+        public var name: String
+        public var sld: Double?
+        public var reprint: Double?
+        public var reprintSet: String?
+        public var isNew: Bool
+        public var id: String { cardId }
+    }
+
+    public struct Comparison: Hashable, Sendable {
+        public var foil: Bool
+        public var price: Double
+        public var priceIsTypical: Bool
+        public var rows: [CompareRow]
+        public var sldTotal: Double
+        public var sldPriced: Int
+        public var reprintTotal: Double
+        public var reprintPriced: Int
+        public var newCards: Int
+        /// Price minus the cards' cost in other printings (positive = premium for the Secret Lair versions).
+        public var premium: Double?
+        /// Secret Lair market minus price (positive = trading above the price).
+        public var marketGap: Double?
+    }
+
+    private static func cents(_ x: Double) -> Double { (x * 100).rounded() / 100 }
+
+    /// Compare a drop's price with its cards' Secret Lair market and the cheapest copies elsewhere.
+    public static func compare(_ cardIds: [String], cards: [String: CardSummary], reprints: [String: ReprintPrice],
+                               foil: Bool = false, price: Double? = nil) -> Comparison {
+        let p = price ?? (foil ? typicalFoilPrice : typicalPrice)
+        var rows: [CompareRow] = []
+        for id in cardIds {
+            guard let c = cards[id] else { continue }
+            let r = c.oracleId.flatMap { reprints[$0] }
+            let reprint: Double? = foil ? (r?.usdFoil ?? r?.usd) : (r?.usd ?? r?.usdFoil)
+            rows.append(CompareRow(cardId: id, name: c.name, sld: c.price(foil ? .foil : .nonfoil), reprint: reprint,
+                                   reprintSet: r?.setName, isNew: r?.printings == 0))
+        }
+        let sldPriced = rows.filter { $0.sld != nil }.count
+        let reprintPriced = rows.filter { $0.reprint != nil }.count
+        let sldTotal = cents(rows.reduce(0) { $0 + ($1.sld ?? 0) })
+        let reprintTotal = cents(rows.reduce(0) { $0 + ($1.reprint ?? 0) })
+        return Comparison(foil: foil, price: p, priceIsTypical: price == nil, rows: rows, sldTotal: sldTotal, sldPriced: sldPriced,
+                          reprintTotal: reprintTotal, reprintPriced: reprintPriced, newCards: rows.filter(\.isNew).count,
+                          premium: reprintPriced > 0 ? cents(p - reprintTotal) : nil,
+                          marketGap: sldPriced > 0 && sldPriced == rows.count ? cents(sldTotal - p) : nil)
+    }
+
+    /// One-line plain-English read of a comparison (same wording as the web app).
+    public static func summary(_ c: Comparison) -> String {
+        var parts: [String] = []
+        let money: (Double) -> String = { String(format: "$%.2f", abs($0)) }
+        if let g = c.marketGap {
+            parts.append(g >= 0 ? "Secret Lair copies trade \(money(g)) above the price" : "Secret Lair copies trade \(money(g)) below the price")
+        }
+        if let pr = c.premium {
+            let partial = c.reprintPriced < c.rows.count ? " (\(c.reprintPriced) of \(c.rows.count) cards)" : ""
+            parts.append(pr >= 0 ? "the cards cost \(money(pr)) less in other printings\(partial)" : "the drop is \(money(pr)) cheaper than other printings\(partial)")
+        }
+        if c.newCards > 0 { parts.append("\(c.newCards) new card\(c.newCards == 1 ? "" : "s") with no other printing") }
+        guard !parts.isEmpty else { return "No prices yet. Compare again once pre-orders or reprint prices show up." }
+        let s = parts.joined(separator: "; ")
+        return String(s.prefix(1)).uppercased() + String(s.dropFirst()) + "."
+    }
+
+    /// Oracle ids among these cards that have no reprint prices from the last two days.
+    public static func staleReprintIds(_ cards: [CardSummary?], known: [String: ReprintPrice], now: Date = Date()) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for c in cards {
+            guard let id = c?.oracleId, !seen.contains(id) else { continue }
+            seen.insert(id)
+            if let k = known[id], let t = parseISO(k.fetchedAt), now.timeIntervalSince(t) < 2 * 86400 { continue }
+            out.append(id)
+        }
+        return out
+    }
+
+    /// Look up the cheapest non-Secret Lair copies of cards (by oracle id) in a few batched Scryfall searches.
+    public static func fetchReprints(_ oracleIds: [String]) async throws -> [String: ReprintPrice] {
+        var found: [String: ReprintPrice] = [:]
+        var i = 0
+        while i < oracleIds.count {
+            let batch = Array(oracleIds[i..<min(i + 12, oracleIds.count)])
+            i += 12
+            var byOracle: [String: [CardSummary]] = [:]
+            for id in batch { byOracle[id] = [] }
+            let q = "(" + batch.map { "oracleid:\($0)" }.joined(separator: " or ") + ") -e:sld"
+            var page = 1
+            while true {
+                let r = try await Scryfall.shared.search(q, unique: "prints", order: "usd", dir: "asc", page: page)
+                for c in r.cards { if let o = c.oracleId, byOracle[o] != nil { byOracle[o]?.append(c) } }
+                if !r.hasMore || page >= 4 { break }
+                page += 1
+            }
+            for id in batch { found[id] = cheapestReprint(byOracle[id] ?? []) }
+        }
+        return found
+    }
+
+    /// Median of (cards' value now ÷ typical price) for drops released 2 months to 2 years ago with every card priced.
+    public static func pastDropTrend(_ cat: SecretLairCatalog, now: Date = Date(), foil: Bool = false,
+                                     minDays: Int = 60, maxDays: Int = 730) -> (median: Double, drops: Int)? {
+        let lo = dayString(now.addingTimeInterval(-Double(maxDays) * 86400))
+        let hi = dayString(now.addingTimeInterval(-Double(minDays) * 86400))
+        var ratios: [Double] = []
+        for g in cat.groups where g.releasedAt >= lo && g.releasedAt <= hi && g.cardIds.count >= 2 {
+            let v = value(g.cardIds, cards: cat.cards, finish: foil ? .foil : .nonfoil)
+            if v.priced == g.cardIds.count { ratios.append(v.total / (foil ? typicalFoilPrice : typicalPrice)) }
+        }
+        guard ratios.count >= 3 else { return nil }
+        ratios.sort()
+        let m = ratios.count / 2
+        return (ratios.count % 2 == 1 ? ratios[m] : (ratios[m - 1] + ratios[m]) / 2, ratios.count)
     }
 }

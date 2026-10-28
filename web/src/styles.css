@@ -384,3 +384,4 @@ td input, td select { padding: 0.2rem 0.35rem; }
 .launch-strip .btn { background: rgb(255 255 255 / 16%); border-color: rgb(255 255 255 / 35%); color: #fff; }
 .launch-strip .btn.primary { background: #f2c14e; color: #1a1300; border-color: #f2c14e; }
 @media (max-width: 860px) { .launch-strip { top: 56px; } }
+.compare { border-top: 1px solid var(--border, rgba(127,127,127,0.25)); margin-top: 0.5rem; padding-top: 0.5rem; }

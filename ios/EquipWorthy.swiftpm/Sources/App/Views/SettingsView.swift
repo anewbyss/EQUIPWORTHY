@@ -35,6 +35,8 @@ struct SettingsView: View {
 
             SyncSection()
 
+            ReminderDeliverySection()
+
             Section {
                 ForEach(store.profiles) { m in
                     HStack {
@@ -220,6 +222,96 @@ struct SyncSection: View {
             token = ""; pass = ""; pass2 = ""
         } catch {
             message = error.localizedDescription
+        }
+    }
+}
+
+/// Secret Lair reminders by push alert (ntfy app) and text message (your own SMS worker).
+@MainActor
+struct ReminderDeliverySection: View {
+    @EnvironmentObject var store: ProfileStore
+    @EnvironmentObject var channels: ReminderChannels
+    @State private var topic = ""
+    @State private var server = ""
+    @State private var workerUrl = ""
+    @State private var key = ""
+    @State private var message: String?
+    @State private var failed = false
+
+    static let ntfyApp = URL(string: "https://apps.apple.com/app/ntfy/id1625396347")!
+    static let smsGuide = URL(string: "https://github.com/anewbyss/EQUIPWORTHY/blob/main/sms-worker/README.md")!
+
+    var body: some View {
+        let s = store.profile.settings
+        Section {
+            Link("Get the free ntfy app", destination: Self.ntfyApp)
+            HStack {
+                TextField("Topic", text: $topic).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button("New") { topic = Channels.newTopic() }.buttonStyle(.borderless)
+            }
+            TextField("Server", text: $server).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+            Toggle("Push alerts on", isOn: Binding(get: { s.ntfyEnabled }, set: { v in applyNtfy(v) }))
+            Button("Save topic & send a test") { applyNtfy(true); run { try await Channels.testNtfy(store.profile.settings) } }
+                .disabled(topic.isEmpty)
+        } header: { Text("Push alerts (ntfy)") } footer: {
+            Text("Subscribe to the same topic in the ntfy app. Reminders are scheduled on ntfy up to 3 days ahead, so they arrive even with EquipWorthy closed. Anyone who knows the topic can read the alerts, so keep the generated name.")
+        }
+        .onAppear(perform: load)
+
+        Section {
+            Link("Setup guide (about 15 minutes)", destination: Self.smsGuide)
+            TextField("Text service URL (https://…workers.dev)", text: $workerUrl)
+                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+            SecureField("App key", text: $key)
+            Toggle("Text reminders on", isOn: Binding(get: { s.smsEnabled }, set: { v in applySms(v) }))
+            Button("Save & send a test text") { applySms(true); run { try await Channels.testSms(store.profile.settings) } }
+                .disabled(workerUrl.isEmpty || key.isEmpty)
+            Button("Re-send reminder schedule") { run { await channels.sync(force: true); if let e = channels.error { throw Channels.ChannelError(e) } } }
+                .disabled(!s.smsEnabled && !s.ntfyEnabled)
+        } header: { Text("Text messages") } footer: {
+            Text("Real SMS sent by your own EquipWorthy text service (Cloudflare + Twilio, about $1–2 a month plus about 1¢ per text). It only ever texts your number. Your Twilio keys stay in the service, never in this app.")
+        }
+
+        if let message {
+            Text(message).font(.footnote).foregroundStyle(failed ? Theme.down : Theme.up)
+        } else if let e = channels.error {
+            Label(e, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(Theme.down)
+        }
+    }
+
+    private func load() {
+        let s = store.profile.settings
+        topic = s.ntfyTopic ?? ""
+        server = s.ntfyServer
+        workerUrl = s.smsWorkerUrl ?? ""
+        key = s.smsKey ?? ""
+    }
+
+    private func applyNtfy(_ on: Bool) {
+        let t = topic.trimmingCharacters(in: .whitespaces)
+        let srv = server.trimmingCharacters(in: .whitespaces)
+        store.mutate {
+            $0.settings.ntfyTopic = t.isEmpty ? nil : t
+            $0.settings.ntfyServer = srv.isEmpty ? "https://ntfy.sh" : srv
+            $0.settings.ntfyEnabled = on && !t.isEmpty
+        }
+    }
+
+    private func applySms(_ on: Bool) {
+        let u = workerUrl.trimmingCharacters(in: .whitespaces)
+        let k = key.trimmingCharacters(in: .whitespaces)
+        store.mutate {
+            $0.settings.smsWorkerUrl = u.isEmpty ? nil : u
+            $0.settings.smsKey = k.isEmpty ? nil : k
+            $0.settings.smsEnabled = on && !u.isEmpty && !k.isEmpty
+        }
+    }
+
+    private func run(_ work: @escaping @MainActor () async throws -> Void) {
+        message = nil
+        Task {
+            do { try await work(); failed = false; message = "Sent. Check your phone." }
+            catch { failed = true; message = error.localizedDescription }
         }
     }
 }

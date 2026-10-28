@@ -2,9 +2,10 @@
 // the background) and loads the drop catalog from Scryfall.
 
 import * as scry from "./scryfall";
-import { dueQueueNotice, dueReminder, groupDrops, launchUrl, queueEstimate } from "./secretlair";
-import { getState, update } from "./store";
-import type { CardSummary, SecretLairDrop } from "./types";
+import { cheapestReprint, dueQueueNotice, dueReminder, groupDrops, launchUrl, queueEstimate } from "./secretlair";
+import { getState, onSaved, update } from "./store";
+import { syncChannels } from "./channels";
+import type { CardSummary, ReprintPrice, SecretLairDrop } from "./types";
 
 function notify(title: string, body: string, url?: string) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
@@ -44,7 +45,9 @@ export function startSecretLair() {
   if (started) return;
   started = true;
   tick();
-  setInterval(() => tick(), 15_000);
+  void syncChannels();
+  onSaved(() => void syncChannels());
+  setInterval(() => (tick(), void syncChannels()), 15_000);
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && tick());
 }
 
@@ -59,10 +62,43 @@ export async function loadCatalog(onStep?: (s: string) => void) {
   }
   const slim: Record<string, CardSummary> = {};
   for (const c of cards) slim[c.id] = { ...c, oracleText: undefined };
-  update((p) => ({ ...p, secretLairCatalog: { cards: slim, groups: groupDrops(cards), fetchedAt: new Date().toISOString() } }));
+  update((p) => ({ ...p, secretLairCatalog: { cards: slim, groups: groupDrops(cards), fetchedAt: new Date().toISOString(), reprints: p.secretLairCatalog?.reprints } }));
 }
 
 export const catalogStale = () => {
   const c = getState().profile?.secretLairCatalog;
   return !c || Date.now() - Date.parse(c.fetchedAt) > 3 * 86400_000;
 };
+
+const REPRINT_TTL_MS = 2 * 86400_000;
+
+/**
+ * Look up the cheapest non-Secret Lair copies of these cards, for pre-drop
+ * price comparisons. Batches oracle ids into a few Scryfall searches and skips
+ * cards checked in the last two days.
+ */
+export async function loadReprints(cards: (CardSummary | undefined)[], force = false): Promise<number> {
+  const known = getState().profile?.secretLairCatalog?.reprints ?? {};
+  const ids = [...new Set(cards.map((c) => c?.oracleId).filter((x): x is string => !!x))].filter(
+    (id) => force || !known[id] || Date.now() - Date.parse(known[id].fetchedAt) > REPRINT_TTL_MS,
+  );
+  if (!ids.length) return 0;
+  const found: Record<string, ReprintPrice> = {};
+  for (let i = 0; i < ids.length; i += 12) {
+    const batch = ids.slice(i, i + 12);
+    const byOracle: Record<string, CardSummary[]> = Object.fromEntries(batch.map((id) => [id, []]));
+    let page = 1;
+    for (;;) {
+      const r = await scry.search(`(${batch.map((id) => `oracleid:${id}`).join(" or ")}) -e:sld`, { unique: "prints", order: "usd", dir: "asc", page });
+      for (const c of r.cards) if (c.oracleId && byOracle[c.oracleId]) byOracle[c.oracleId].push(c);
+      if (!r.hasMore || page >= 4) break;
+      page++;
+    }
+    for (const id of batch) found[id] = cheapestReprint(byOracle[id]);
+  }
+  update((p) => ({
+    ...p,
+    secretLairCatalog: { cards: {}, groups: [], fetchedAt: new Date(0).toISOString(), ...p.secretLairCatalog, reprints: { ...(p.secretLairCatalog?.reprints ?? {}), ...found } },
+  }));
+  return ids.length;
+}

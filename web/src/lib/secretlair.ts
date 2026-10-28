@@ -5,7 +5,7 @@
 // EquipWorthy never joins the waiting room or buys anything for you: it gets you
 // to the official page at the right moment, ready to check out.
 
-import { priceFor, type CardSummary, type Finish, type QueueLog, type SecretLairDrop, type SecretLairGroup } from "./types";
+import { priceFor, today, type CardSummary, type Finish, type QueueLog, type ReprintPrice, type SecretLairCatalog, type SecretLairDrop, type SecretLairGroup } from "./types";
 
 export const STORE_URL = "https://secretlair.wizards.com/";
 export const ACCOUNT_URL = "https://myaccounts.wizards.com/";
@@ -163,11 +163,16 @@ export function groupDrops(cards: CardSummary[]): SecretLairGroup[] {
   const flush = () => {
     if (!cur) return;
     const names = [...new Set(cur.cards.map((c) => c.name))];
+    const previewed = cur.cards.filter((c) => c.preview?.at || c.preview?.url).sort((a, b) => (a.preview?.at ?? "9").localeCompare(b.preview?.at ?? "9"));
+    const linked = previewed.find((c) => c.preview?.url);
     groups.push({
       key: `${cur.releasedAt}#${cur.first}`,
       name: `${names.slice(0, 2).join(", ")}${names.length > 2 ? ` +${names.length - 2} more` : ""}`,
       releasedAt: cur.releasedAt,
       cardIds: cur.cards.map((c) => c.id),
+      announcedAt: previewed[0]?.preview?.at?.slice(0, 10),
+      announcementUrl: linked?.preview?.url,
+      announcementSource: linked?.preview?.source,
     });
   };
   for (const c of sorted) {
@@ -184,7 +189,196 @@ export function groupDrops(cards: CardSummary[]): SecretLairGroup[] {
   return groups.sort((a, b) => b.releasedAt.localeCompare(a.releasedAt) || b.key.localeCompare(a.key));
 }
 
+// ---------------- upcoming drops and pre-drop price comparison ----------------
+
+/** Usual Secret Lair prices, used when a drop's price isn't known yet. */
+export const TYPICAL_PRICE = { nonfoil: 29.99, foil: 39.99 };
+
+/** Scryfall search showing the cards in a drop group. */
+export const scryfallGroupUrl = (g: SecretLairGroup, cards: Record<string, CardSummary | undefined>) => {
+  const nums = g.cardIds.map((id) => cards[id]?.collectorNumber).filter(Boolean);
+  return `https://scryfall.com/search?q=${encodeURIComponent(`e:sld (${nums.map((n) => `cn:${n}`).join(" or ")})`)}&unique=prints`;
+};
+
+/** Announced drops not yet released, plus ones released in the last `recentDays` days, soonest first. */
+export function upcomingGroups(groups: SecretLairGroup[], now = new Date(), recentDays = 30): SecretLairGroup[] {
+  const from = today(new Date(now.getTime() - recentDays * 86400_000));
+  return groups.filter((g) => g.releasedAt >= from).sort((a, b) => a.releasedAt.localeCompare(b.releasedAt) || a.key.localeCompare(b.key));
+}
+
+export const isUpcoming = (g: Pick<SecretLairGroup, "releasedAt">, now = new Date()) => g.releasedAt > today(now);
+
+/** Cheapest non-Secret Lair copies from a list of printings of one card. */
+export function cheapestReprint(prints: CardSummary[], now = new Date()): ReprintPrice {
+  const paper = prints.filter((c) => c.set !== "sld");
+  const min = (xs: (number | undefined)[]) => {
+    const v = xs.filter((x): x is number => x != null && x > 0);
+    return v.length ? Math.min(...v) : undefined;
+  };
+  const usd = min(paper.map((c) => c.prices.usd));
+  return {
+    usd,
+    usdFoil: min(paper.map((c) => c.prices.usdFoil)),
+    setName: usd != null ? paper.find((c) => c.prices.usd === usd)?.setName : undefined,
+    printings: paper.length,
+    fetchedAt: now.toISOString(),
+  };
+}
+
+export interface CompareRow {
+  cardId: string;
+  name: string;
+  sld?: number; // Secret Lair version's market / pre-order price
+  reprint?: number; // cheapest copy in another set
+  reprintSet?: string;
+  isNew: boolean; // first printing: no other copies to compare
+}
+
+export interface DropComparison {
+  finish: "nonfoil" | "foil";
+  price: number;
+  priceIsTypical: boolean;
+  rows: CompareRow[];
+  sldTotal: number;
+  sldPriced: number;
+  reprintTotal: number;
+  reprintPriced: number;
+  newCards: number;
+  /** Price minus what the cards cost in other printings (positive = you pay a premium for the Secret Lair versions). */
+  premium?: number;
+  /** Secret Lair market minus price (positive = pre-orders trade above the price). */
+  marketGap?: number;
+}
+
+/** Compare a drop's price with its cards' Secret Lair market and the cheapest copies elsewhere. */
+export function compareDrop(
+  cardIds: string[],
+  cards: Record<string, CardSummary | undefined>,
+  reprints: Record<string, ReprintPrice | undefined>,
+  opts: { finish?: "nonfoil" | "foil"; price?: number } = {},
+): DropComparison {
+  const finish = opts.finish ?? "nonfoil";
+  const price = opts.price ?? TYPICAL_PRICE[finish];
+  const rows: CompareRow[] = [];
+  for (const id of cardIds) {
+    const c = cards[id];
+    if (!c) continue;
+    const r = c.oracleId ? reprints[c.oracleId] : undefined;
+    const reprint = r ? (finish === "foil" ? r.usdFoil ?? r.usd : r.usd ?? r.usdFoil) : undefined;
+    rows.push({ cardId: id, name: c.name, sld: priceFor(c, finish), reprint, reprintSet: r?.setName, isNew: !!r && r.printings === 0 });
+  }
+  const sum = (xs: (number | undefined)[]) => Math.round(xs.reduce<number>((a, x) => a + (x ?? 0), 0) * 100) / 100;
+  const sldPriced = rows.filter((r) => r.sld != null).length;
+  const reprintPriced = rows.filter((r) => r.reprint != null).length;
+  const sldTotal = sum(rows.map((r) => r.sld));
+  const reprintTotal = sum(rows.map((r) => r.reprint));
+  return {
+    finish, price, priceIsTypical: opts.price == null, rows, sldTotal, sldPriced, reprintTotal, reprintPriced,
+    newCards: rows.filter((r) => r.isNew).length,
+    premium: reprintPriced ? Math.round((price - reprintTotal) * 100) / 100 : undefined,
+    marketGap: sldPriced && sldPriced === rows.length ? Math.round((sldTotal - price) * 100) / 100 : undefined,
+  };
+}
+
+/** One-line plain-English read of a comparison. */
+export function compareSummary(c: DropComparison): string {
+  const parts: string[] = [];
+  const $ = (n: number) => `$${Math.abs(n).toFixed(2)}`;
+  if (c.marketGap != null) parts.push(c.marketGap >= 0 ? `Secret Lair copies trade ${$(c.marketGap)} above the price` : `Secret Lair copies trade ${$(c.marketGap)} below the price`);
+  if (c.premium != null) {
+    const partial = c.reprintPriced < c.rows.length ? ` (${c.reprintPriced} of ${c.rows.length} cards)` : "";
+    parts.push(c.premium >= 0 ? `the cards cost ${$(c.premium)} less in other printings${partial}` : `the drop is ${$(c.premium)} cheaper than other printings${partial}`);
+  }
+  if (c.newCards) parts.push(`${c.newCards} new card${c.newCards === 1 ? "" : "s"} with no other printing`);
+  if (!parts.length) return "No prices yet. Compare again once pre-orders or reprint prices show up.";
+  const s = parts.join("; ");
+  return s[0].toUpperCase() + s.slice(1) + ".";
+}
+
+/**
+ * How past drops have held value: the median of (cards' value now ÷ typical price)
+ * for drops released between `minDays` and `maxDays` ago with every card priced.
+ */
+export function pastDropTrend(cat: SecretLairCatalog, now = new Date(), finish: "nonfoil" | "foil" = "nonfoil", minDays = 60, maxDays = 730): { median: number; drops: number } | null {
+  const lo = today(new Date(now.getTime() - maxDays * 86400_000));
+  const hi = today(new Date(now.getTime() - minDays * 86400_000));
+  const ratios: number[] = [];
+  for (const g of cat.groups) {
+    if (g.releasedAt < lo || g.releasedAt > hi || g.cardIds.length < 2) continue;
+    const v = dropValue(g.cardIds, cat.cards, finish);
+    if (v.priced === g.cardIds.length) ratios.push(v.total / TYPICAL_PRICE[finish]);
+  }
+  if (ratios.length < 3) return null;
+  ratios.sort((a, b) => a - b);
+  const m = ratios.length >> 1;
+  return { median: ratios.length % 2 ? ratios[m] : (ratios[m - 1] + ratios[m]) / 2, drops: ratios.length };
+}
+
 export function newDrop(name: string, fields: Partial<SecretLairDrop> = {}): SecretLairDrop {
   const now = new Date().toISOString();
   return { id: crypto.randomUUID(), name, cardIds: [], marked: true, checklist: {}, remindersSent: [], createdAt: now, updatedAt: now, ...fields };
+}
+
+// ---------------- reminder plan (shared by notifications, ntfy, texts, calendar) ----------------
+
+export interface PlannedReminder {
+  id: string; // stable per drop + reminder, e.g. "<dropId>-5m"
+  key: string;
+  at: string; // ISO time to deliver
+  title: string;
+  body: string;
+  url: string;
+}
+
+/** Every reminder still ahead for a followed drop with a sale time. */
+export function plannedReminders(d: SecretLairDrop, now = new Date()): PlannedReminder[] {
+  if (!d.marked || d.owned || !d.saleStart) return [];
+  const start = Date.parse(d.saleStart);
+  if (Number.isNaN(start)) return [];
+  return REMINDERS.map((r) => ({ r, at: start - r.before }))
+    .filter(({ at }) => at > now.getTime())
+    .map(({ r, at }) => ({
+      id: `${d.id}-${r.key}`,
+      key: r.key,
+      at: new Date(at).toISOString(),
+      title: r.key === "open" ? "Secret Lair drop is live" : "Secret Lair reminder",
+      body: r.text(d.name),
+      url: launchUrl(d),
+    }));
+}
+
+const icsDate = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+const icsText = (s: string) => s.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+
+/** A calendar event for the sale with alerts 24h, 1h, 15m and 5m before and at the start. */
+export function icsFor(d: SecretLairDrop, now = new Date()): string | null {
+  if (!d.saleStart) return null;
+  const start = d.saleStart;
+  const end = d.saleEnd && Date.parse(d.saleEnd) - Date.parse(start) < 6 * 3600_000 ? d.saleEnd : new Date(Date.parse(start) + 30 * 60_000).toISOString();
+  const url = launchUrl(d);
+  const alarms = REMINDERS.map((r) => [
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${icsText(r.text(d.name))}`,
+    `TRIGGER:-PT${Math.round(r.before / 60_000)}M`,
+    "END:VALARM",
+  ].join("\r\n"));
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//EquipWorthy//Secret Lair//EN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${d.id}@equipworthy`,
+    `DTSTAMP:${icsDate(now.toISOString())}`,
+    `DTSTART:${icsDate(start)}`,
+    `DTEND:${icsDate(end!)}`,
+    `SUMMARY:${icsText(`Secret Lair: ${d.name}`)}`,
+    `DESCRIPTION:${icsText(`Sale opens. Open the drop: ${url}${d.price != null ? `\nPrice: $${d.price.toFixed(2)}` : ""}`)}`,
+    `URL:${url}`,
+    ...alarms,
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
 }
