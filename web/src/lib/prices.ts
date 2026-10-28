@@ -18,6 +18,7 @@ export function trackedIds(p: Profile): string[] {
   p.watchlist.forEach((c) => ids.add(c.cardId));
   p.decks.forEach((d) => d.cards.forEach((c) => ids.add(c.cardId)));
   p.trades.forEach((t) => [...t.mine, ...t.theirs].forEach((c) => ids.add(c.cardId)));
+  (p.secretLair ?? []).forEach((d) => (d.marked || d.owned) && d.cardIds.forEach((id) => ids.add(id)));
   return [...ids].filter(Boolean);
 }
 

@@ -58,6 +58,15 @@ export const SCREENS: Screen[] = [
       return n ? `${n} fast mover${n === 1 ? "" : "s"}` : m.synergy.length ? `${m.synergy.length} synergy picks` : null;
     },
   },
+  {
+    to: "/secret-lair", title: "Secret Lair", blurb: "Drop reminders, launch link, line tracker", accent: "violet",
+    icon: "M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.6 6.5 19.5l1-6.3L3 8.9 9 8z",
+    stat: (p) => {
+      const next = (p.secretLair ?? []).filter((d) => d.marked && d.saleStart && Date.parse(d.saleStart) > Date.now() - 2 * 3600_000).sort((a, b) => a.saleStart!.localeCompare(b.saleStart!))[0];
+      if (!next) return p.secretLair?.length ? `${p.secretLair.length} followed` : null;
+      return Date.parse(next.saleStart!) <= Date.now() ? `${next.name}: LIVE` : `Next: ${new Date(next.saleStart!).toLocaleDateString([], { month: "short", day: "numeric" })}`;
+    },
+  },
   { to: "/trade", title: "Trade Scale", blurb: "Balance a trade, store trade-in values", accent: "violet", icon: "M12 3v18M5 7h14M5 7l-3 7h6zM19 7l-3 7h6zM8 21h8" },
   {
     to: "/life", title: "Life & Dice", blurb: "Life, commander damage, counters, dice", accent: "gold",

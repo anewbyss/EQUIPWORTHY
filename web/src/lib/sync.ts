@@ -69,13 +69,14 @@ export function mergeSeries(a: PriceSeries = [], b: PriceSeries = []): PriceSeri
 }
 
 /** Card data and the market scan are not synced (large and rebuilt on each device); everything else is. */
-export const SYNC_EXCLUDED = ["cardCache", "market"] as const;
+export const SYNC_EXCLUDED = ["cardCache", "market", "secretLairCatalog"] as const;
 export type SyncedProfile = Omit<Profile, "cardCache">;
 
 export function forSync(p: Profile): SyncedProfile {
-  const { cardCache: _omit, market: _market, ...rest } = p;
+  const { cardCache: _omit, market: _market, secretLairCatalog: _sl, ...rest } = p;
   void _omit;
   void _market;
+  void _sl;
   return rest;
 }
 
@@ -106,6 +107,7 @@ export function mergeProfiles(base: SyncedProfile | undefined, local: SyncedProf
     trades: mergeList(base?.trades, local.trades, remote.trades, id, preferLocal),
     pendingBatch: mergeList(base?.pendingBatch, local.pendingBatch ?? [], remote.pendingBatch ?? [], (r) => r.key, preferLocal),
     game: v("game"),
+    secretLair: mergeList(base?.secretLair, local.secretLair ?? [], remote.secretLair ?? [], id, preferLocal),
     priceHistory,
     portfolioHistory: preferLocal ? mergeSeries(local.portfolioHistory, remote.portfolioHistory) : mergeSeries(remote.portfolioHistory, local.portfolioHistory),
     forecastLog: mergeList(base?.forecastLog, local.forecastLog, remote.forecastLog, logKey, preferLocal).slice(-5000),

@@ -7,6 +7,7 @@ import EquipWorthyKit
 
 @main
 struct EquipWorthyApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = ProfileStore()
     @StateObject private var sync = SyncManager()
     @StateObject private var refresher = PriceRefresher()

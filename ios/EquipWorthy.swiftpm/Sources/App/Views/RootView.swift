@@ -21,6 +21,9 @@ struct RootView: View {
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
                 .badge(store.profile.alerts.filter { !$0.read }.count)
         }
+        .safeAreaInset(edge: .top, spacing: 0) { LaunchStripView() }
+        .task { SecretLairNotifier.reschedule(store.profile.secretLair ?? []) }
+        .onChange(of: store.profile.secretLair) { _, drops in SecretLairNotifier.reschedule(drops ?? []) }
     }
 }
 
@@ -38,6 +41,7 @@ struct MoreView: View {
                     .badge(store.profile.alerts.filter { !$0.read }.count)
             }
             NavigationLink { MarketView() } label: { Label("Market Watch", systemImage: "chart.line.uptrend.xyaxis.circle") }
+            NavigationLink { SecretLairView() } label: { Label("Secret Lair", systemImage: "star.square.on.square") }
             NavigationLink { TradeView() } label: { Label("Trade Scale", systemImage: "scalemass") }
             NavigationLink { SetsView() } label: { Label("Sets & Spoilers", systemImage: "sparkles.rectangle.stack") }
             NavigationLink { SettingsView() } label: { Label("Settings & Profiles", systemImage: "gearshape") }

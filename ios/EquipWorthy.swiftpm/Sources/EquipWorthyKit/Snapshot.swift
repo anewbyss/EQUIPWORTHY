@@ -13,6 +13,7 @@ public enum Snapshot {
         p.watchlist.forEach { ids.insert($0.cardId) }
         p.decks.forEach { $0.cards.forEach { ids.insert($0.cardId) } }
         p.trades.forEach { t in (t.mine + t.theirs).forEach { ids.insert($0.cardId) } }
+        for d in p.secretLair ?? [] where d.marked || d.owned != nil { d.cardIds.forEach { ids.insert($0) } }
         return ids.filter { !$0.isEmpty }.sorted()
     }
 

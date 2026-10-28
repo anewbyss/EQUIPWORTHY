@@ -31,6 +31,15 @@
 - ✅ Synergy picks add an "Incoming synergy" factor to forecasts
 - ✅ Market Watch screen and launch tile; one-tap Watch on any mover or pick
 
+## 1c. Secret Lair ([SECRET_LAIR.md](SECRET_LAIR.md))
+- ✅ Follow drops by hand or from a Scryfall-based catalog of recent drops, with sale time, price and the official product link
+- ✅ Reminders 24h / 1h / 15m / 5m before and at launch; tapping opens the drop page (iOS: works with the app closed)
+- ✅ Launch strip with an "Open the drop" button from 15 minutes before to 2 hours after a sale opens
+- ✅ "Be ready to buy" checklist
+- ✅ Place-in-line tracker: enter your position and get estimated wait, line speed and "almost through" notifications
+- ✅ Drop value against price; record purchases into a Secret Lair binder
+- Doesn't join queues or buy automatically (against Secret Lair's terms)
+
 ## 2. Price forecasting
 - ✅ 7-day and 30-day forecast: direction (up / flat / down), expected % move with a target price, and an 80% range
 - ✅ Confidence level (Low / Medium / High) based on how much history exists and how volatile the price is

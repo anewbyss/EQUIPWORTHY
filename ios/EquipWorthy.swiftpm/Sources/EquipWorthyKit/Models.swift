@@ -346,6 +346,10 @@ public struct Profile: Codable, Hashable, Identifiable, Sendable {
     public var game: GameState?
     /// Market-wide price watch and synergy picks. Rebuilt on each device, not synced.
     public var market: MarketData?
+    /// Secret Lair drops you've marked or added (synced).
+    public var secretLair: [SecretLairDrop]?
+    /// Recent Secret Lair cards from Scryfall, grouped into drops. Not synced.
+    public var secretLairCatalog: SecretLairCatalog?
 
     public init(name: String) {
         schemaVersion = currentSchemaVersion
@@ -383,6 +387,8 @@ public struct Profile: Codable, Hashable, Identifiable, Sendable {
         pendingBatch = try c.decodeIfPresent([PendingRow].self, forKey: .pendingBatch)
         game = try c.decodeIfPresent(GameState.self, forKey: .game)
         market = try? c.decodeIfPresent(MarketData.self, forKey: .market)
+        secretLair = try c.decodeIfPresent([SecretLairDrop].self, forKey: .secretLair)
+        secretLairCatalog = try? c.decodeIfPresent(SecretLairCatalog.self, forKey: .secretLairCatalog)
     }
 
     public func card(_ id: String) -> CardSummary? { cardCache[id] }

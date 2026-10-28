@@ -269,3 +269,82 @@ final class MarketTests: XCTestCase {
         XCTAssertNil(SyncMerge.forSync(d2).market)
     }
 }
+
+final class SecretLairTests: XCTestCase {
+    let iso = ISO8601DateFormatter()
+    func at(_ s: String) -> Date { iso.date(from: s)! }
+
+    func drop(_ start: String? = "2026-11-01T17:00:00Z") -> SecretLairDrop {
+        var d = SecretLairDrop(name: "Test Drop")
+        d.saleStart = start
+        return d
+    }
+
+    func testReminders() {
+        let d = drop()
+        XCTAssertNil(SecretLair.dueReminder(d, now: at("2026-10-30T17:00:00Z")))
+        XCTAssertEqual(SecretLair.dueReminder(d, now: at("2026-10-31T17:30:00Z"))?.key, "24h")
+        let r = SecretLair.dueReminder(d, now: at("2026-11-01T16:50:00Z"))!
+        XCTAssertEqual(r.key, "15m")
+        XCTAssertEqual(r.skip, ["24h", "1h"])
+        XCTAssertEqual(SecretLair.dueReminder(d, now: at("2026-11-01T17:00:05Z"))?.key, "open")
+        XCTAssertNil(SecretLair.dueReminder(d, now: at("2026-11-01T20:00:00Z")))
+    }
+
+    func testCountdownAndState() {
+        XCTAssertEqual(SecretLair.countdown("2026-11-01T17:00:00Z", now: at("2026-10-30T15:00:00Z")), "2d 2h")
+        XCTAssertEqual(SecretLair.countdown("2026-11-01T17:00:00Z", now: at("2026-11-01T15:54:30Z")), "1h 05m")
+        XCTAssertEqual(SecretLair.countdown("2026-11-01T17:00:00Z", now: at("2026-11-01T16:55:51Z")), "4m 09s")
+        XCTAssertEqual(SecretLair.state(drop(), now: at("2026-11-01T16:30:00Z")), .soon)
+        XCTAssertEqual(SecretLair.state(drop(), now: at("2026-11-01T17:01:00Z")), .live)
+        XCTAssertEqual(SecretLair.state(drop(nil)), .unscheduled)
+    }
+
+    func testLaunchURL() {
+        var d = drop()
+        d.url = "https://secretlair.wizards.com/us/product/123"
+        XCTAssertEqual(SecretLair.launchURL(d).absoluteString, "https://secretlair.wizards.com/us/product/123")
+        d.url = "javascript:alert(1)"
+        XCTAssertEqual(SecretLair.launchURL(d), SecretLair.storeURL)
+    }
+
+    func testQueueEstimate() {
+        let log = QueueLog(startedAt: "2026-11-01T17:00:00Z", entries: [
+            QueueReading("2026-11-01T17:00:00Z", 12000), QueueReading("2026-11-01T17:02:00Z", 10000), QueueReading("2026-11-01T17:04:00Z", 8000),
+        ])
+        let est = SecretLair.estimate(log, now: at("2026-11-01T17:04:00Z"))!
+        XCTAssertEqual(est.perMinute, 1000)
+        XCTAssertEqual(est.etaMinutes, 8)
+        XCTAssertNil(SecretLair.dueQueueNotice(log, est))
+        let soon = SecretLair.estimate(log, now: at("2026-11-01T17:08:30Z"))!
+        XCTAssertEqual(soon.etaMinutes, 3.5)
+        XCTAssertEqual(SecretLair.dueQueueNotice(log, soon)?.key, "soon")
+    }
+
+    func testGroupingValueAndWebJSON() throws {
+        func c(_ id: String, _ cn: String, _ rel: String, _ usd: Double) -> CardSummary {
+            CardSummary(id: id, name: "Card \(id)", set: "sld", collectorNumber: cn, releasedAt: rel, prices: Prices(usd: usd))
+        }
+        let g = SecretLair.groupDrops([c("a", "100", "2026-10-01", 5), c("b", "101", "2026-10-01", 3), c("c", "105", "2026-10-01", 1), c("d", "106", "2026-11-01", 2)])
+        XCTAssertEqual(g.map(\.cardIds), [["d"], ["c"], ["a", "b"]])
+        XCTAssertEqual(SecretLair.value(["a", "b", "z"], cards: ["a": c("a", "1", "x", 5), "b": c("b", "2", "x", 3)]).total, 8)
+
+        let json = """
+        {"id":"d1","name":"Web Drop","saleStart":"2026-11-01T17:00:00.000Z","price":29.99,"url":"https://secretlair.wizards.com/x",
+         "cardIds":["a"],"marked":true,"checklist":{"account":true},"remindersSent":["24h"],
+         "queue":{"startedAt":"2026-11-01T17:00:00.000Z","entries":[["2026-11-01T17:00:00.000Z",5000]],"notified":[]},
+         "owned":{"finish":"foil","quantity":1,"paid":29.99},"createdAt":"x","updatedAt":"y"}
+        """
+        let d = try JSONDecoder().decode(SecretLairDrop.self, from: Data(json.utf8))
+        XCTAssertEqual(d.queue?.entries.first?.position, 5000)
+        XCTAssertEqual(d.owned?.finish, .foil)
+        XCTAssertTrue(SecretLair.isChecked(d, "link"))
+        XCTAssertEqual(try JSONDecoder().decode(SecretLairDrop.self, from: JSONEncoder().encode(d)), d)
+
+        var p = Profile(name: "t")
+        p.secretLair = [d]
+        p.secretLairCatalog = SecretLairCatalog(cards: [:], groups: [], fetchedAt: "")
+        XCTAssertEqual(Snapshot.trackedIds(p), ["a"])
+        XCTAssertNil(SyncMerge.forSync(p).secretLairCatalog)
+    }
+}
