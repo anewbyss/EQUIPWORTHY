@@ -199,6 +199,7 @@ final class ProfileStore: ObservableObject {
         p.cardCache = profile.cardCache
         p.market = profile.market
         p.secretLairCatalog = profile.secretLairCatalog
+        p.allCards = profile.allCards
         profile = p
         dirty = true
         await save(quiet: true)

@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches-ignore: [market-data]
   pull_request:
 
 jobs:
@@ -22,6 +23,12 @@ jobs:
       - name: SMS worker tests
         run: npx vitest run --root ../sms-worker
       - run: npm run build
+
+  market-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover scripts/market
 
   ios:
     runs-on: macos-15

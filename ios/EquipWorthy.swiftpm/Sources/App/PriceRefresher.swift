@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UserNotifications
 #if canImport(EquipWorthyKit)
 import EquipWorthyKit
 #endif
@@ -28,7 +29,7 @@ final class PriceRefresher: ObservableObject {
     /// Run if prices or the market scan are due today.
     func checkDue() {
         guard let p = store?.profile, !running else { return }
-        if Market.pricesDue(p) || Market.marketDue(p) { Task { await refreshAll() } }
+        if Market.pricesDue(p) || Market.marketDue(p) || Feed.due(p) { Task { await refreshAll() } }
     }
 
     func refreshAll(force: Bool = false) async {
@@ -44,7 +45,15 @@ final class PriceRefresher: ObservableObject {
             if let e = store.lastError, e.hasPrefix("Price refresh failed") { error = e; return }
         }
         let p = store.profile
-        guard p.settings.marketScan, force || Market.marketDue(p) else { return }
+        if p.settings.marketScan, force || Market.marketDue(p) { await scanMarket(p) }
+        if force || Feed.due(store.profile) {
+            step = "Checking all-cards market feed…"
+            do { try await refreshFeed() } catch { if force { self.error = "Market feed: \(error.localizedDescription)" } }
+        }
+    }
+
+    private func scanMarket(_ p: Profile) async {
+        guard let store else { return }
         do {
             let pages = max(1, Int((Double(p.settings.marketUniverse) / 175).rounded(.up)))
             var universe: [CardSummary] = []
@@ -70,6 +79,51 @@ final class PriceRefresher: ObservableObject {
             notifyMarket(store.profile)
         } catch {
             self.error = "Market scan failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Download the daily all-cards feed and raise buy/sell signals for your cards.
+    func refreshFeed() async throws {
+        guard let store, store.profile.settings.marketFeed else { return }
+        var req = URLRequest(url: Feed.url)
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, res) = try await URLSession.shared.data(for: req)
+        let code = (res as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 404 { throw Channels.ChannelError("The market feed hasn't been published yet") }
+        guard code == 200, let feed = Feed.parse(data) else { throw Channels.ChannelError("The market feed couldn't be read") }
+        var fresh: [PriceSignal] = []
+        var digest: [FeedEntry] = []
+        store.mutate { p in
+            let r = Feed.apply(p, feed: feed)
+            p = r.profile
+            fresh = r.fresh
+            digest = r.digest
+        }
+        await notifySignals(store.profile, fresh: fresh, digest: digest)
+    }
+
+    private func notifySignals(_ p: Profile, fresh: [PriceSignal], digest: [FeedEntry]) async {
+        struct Item { let title: String; let body: String; let url: URL }
+        var items: [Item] = []
+        for s in fresh.prefix(5) {
+            let link: URL = s.entry.tcgplayer.flatMap { URL(string: $0) } ?? Feed.appMarketURL
+            items.append(Item(title: s.kind == "sell" ? "Hot sell" : "Buy signal", body: s.message, url: link))
+        }
+        if fresh.count > 5 { items.append(Item(title: "More signals", body: "\(fresh.count - 5) more buy/sell signals in Market Watch.", url: Feed.appMarketURL)) }
+        if !digest.isEmpty { items.append(Item(title: "Market signals today", body: digest.map(Feed.entryText).joined(separator: "\n"), url: Feed.appMarketURL)) }
+        guard !items.isEmpty else { return }
+        if p.settings.notifications {
+            for it in items {
+                let content = UNMutableNotificationContent()
+                content.title = it.title
+                content.body = it.body
+                content.sound = .default
+                content.userInfo = ["url": it.url.absoluteString]
+                try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "signal-\(UUID().uuidString)", content: content, trigger: nil))
+            }
+        }
+        if p.settings.signalPush, p.settings.ntfyEnabled, p.settings.ntfyTopic != nil {
+            for it in items { try? await Channels.ntfySend(p.settings, title: it.title, body: it.body, url: it.url) }
         }
     }
 

@@ -29,6 +29,8 @@
 - ✅ Daily market scan of the most popular Commander cards (175–1,050, adjustable) for market-wide spikes and drops
 - ✅ Synergy watch: reads every new card in recent and upcoming sets and ranks older cards likely to rise, especially ones that fit a new commander, with reasons
 - ✅ Synergy picks add an "Incoming synergy" factor to forecasts
+- ✅ All-cards market feed: daily risers, fallers, sell spikes and buy dips across every printing (GitHub Action + Scryfall bulk data)
+- ✅ Hot-sell signals for cards you own and buy signals for cards you want, as alerts, notifications and push alerts
 - ✅ Market Watch screen and launch tile; one-tap Watch on any mover or pick
 
 ## 1c. Secret Lair ([SECRET_LAIR.md](SECRET_LAIR.md))

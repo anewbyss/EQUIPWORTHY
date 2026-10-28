@@ -7,8 +7,8 @@ import EquipWorthyKit
 struct MarketView: View {
     @EnvironmentObject var store: ProfileStore
     @EnvironmentObject var refresher: PriceRefresher
-    enum Tab: String, CaseIterable { case movers = "Fast movers", synergy = "Synergy watch" }
-    @State private var tab = Tab.movers
+    enum Tab: String, CaseIterable { case all = "All cards", movers = "Fast movers", synergy = "Synergy" }
+    @State private var tab = Tab.all
 
     var body: some View {
         let p = store.profile
@@ -27,6 +27,8 @@ struct MarketView: View {
                     .disabled(refresher.running)
             }
             switch tab {
+            case .all:
+                AllCardsSection()
             case .movers:
                 Section {
                     Text("Moving fast = \(Int(p.settings.spikePct1d))%+ in a day or \(Int(p.settings.spikePct7d))%+ in a week (cards under \(p.settings.moverMinPrice.usd) ignored).")

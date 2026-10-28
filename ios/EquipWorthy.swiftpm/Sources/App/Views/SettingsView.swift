@@ -120,8 +120,17 @@ struct SettingsView: View {
                         ForEach([175, 350, 525, 700, 1050], id: \.self) { Text("Top \($0) by EDHREC").tag($0) }
                     }
                 }
+                Toggle("All-cards market feed", isOn: setting(\.marketFeed))
+                if p.settings.marketFeed {
+                    Picker("Buy/sell signals", selection: setting(\.signalScope)) {
+                        Text("Cards I own or want").tag("mine")
+                        Text("Mine + top market signals").tag("all")
+                        Text("Off").tag("off")
+                    }
+                    Toggle("Also send signals as push alerts", isOn: setting(\.signalPush))
+                }
             } header: { Text("Fast movers & market scan") } footer: {
-                Text("Your own cards raise an alert when they move past these thresholds. The daily market scan watches popular Commander cards for spikes and drops, and finds older cards likely to rise from new-set synergies.")
+                Text("Your own cards raise an alert when they move past these thresholds. The daily market scan watches popular Commander cards for spikes and drops, and finds older cards likely to rise from new-set synergies. The all-cards feed checks every printing once a day: a card you own that spikes is a hot sell, and a card on your watchlist, wishlist or in a deck that dips is a buy signal. Push alerts need ntfy set up under Reminder delivery.")
             }
 
             Section("Storage") {
