@@ -40,10 +40,17 @@ jobs:
 
       - name: Download Scryfall prices
         run: |
-          url=$(curl -sSf -H "User-Agent: EquipWorthy-market-scan/1.0" -H "Accept: application/json" \
-            https://api.scryfall.com/bulk-data | jq -r '.data[] | select(.type == "default_cards") | .download_uri')
-          if [ -z "$url" ] || [ "$url" = "null" ]; then echo "::error::Scryfall didn't list a default_cards bulk file"; exit 1; fi
-          echo "Downloading $url"
+          curl -sSf -H "User-Agent: EquipWorthy-market-scan/1.0" -H "Accept: application/json" https://api.scryfall.com/bulk-data -o bulk-index.json
+          echo "Bulk files Scryfall lists:"
+          jq -r '.data[]? | "  \(.type)  \(.name)  \(.size // "")"' bulk-index.json || head -c 500 bulk-index.json
+          # Prefer one English printing per card ("default_cards"); fall back to anything named like it, then all cards.
+          url=$(jq -r '
+            [.data[]?] as $d
+            | ([$d[] | select(.type == "default_cards")]
+               + [$d[] | select((.name // "" | ascii_downcase | test("default")) or (.type // "" | test("default")))]
+               + [$d[] | select(.type == "all_cards")])
+            | first | .download_uri // empty' bulk-index.json)
+          if [ -z "$url" ]; then head -c 600 bulk-index.json; echo; echo "::error::Scryfall didn't list a default_cards bulk file"; exit 1; fi
           curl -sSfL --compressed -H "User-Agent: EquipWorthy-market-scan/1.0" "$url" -o default-cards.json
           ls -lh default-cards.json
 
