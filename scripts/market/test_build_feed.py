@@ -65,6 +65,19 @@ class FeedTest(unittest.TestCase):
         self.assertEqual(len(hist["dates"]), build_feed.HISTORY_DAYS)
         self.assertEqual(len(hist["p"]["a:n"]), build_feed.HISTORY_DAYS)
 
+    def test_reads_gzipped_json_lines(self):
+        import gzip
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "default-cards.jsonl.gz")
+        with gzip.open(path, "wt", encoding="utf-8") as f:
+            for c in [card("a", "A", usd=5), card("b", "B", foil=9)]:
+                f.write(json.dumps(c) + "\n")
+        self.assertEqual([c["id"] for c in build_feed.iter_cards(path)], ["a", "b"])
+        plain = os.path.join(d, "plain.jsonl.gz")  # named .gz but already decompressed
+        with open(plain, "w") as f:
+            f.write(json.dumps(card("c", "C", usd=2)) + "\n")
+        self.assertEqual([c["id"] for c in build_feed.iter_cards(plain)], ["c"])
+
     def test_new_card_padding(self):
         feed, hist = self.run_days([[card("a", "A", usd=5)], [card("a", "A", usd=5), card("b", "B", usd=9)]])
         self.assertEqual(hist["p"]["b:n"], [None, 9.0])

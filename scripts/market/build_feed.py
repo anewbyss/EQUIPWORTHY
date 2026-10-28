@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """EquipWorthy daily market scan.
 
-Reads Scryfall's "default_cards" bulk file (every English printing with its
+Reads Scryfall's "default_cards" bulk file (JSON Lines or JSON) (every English printing with its
 TCGplayer USD prices), keeps a rolling 30-day price history, and writes a
 small movers.json the apps download: the biggest risers and fallers across
 all cards, plus buy signals (popular cards dipping below their 30-day average)
 and sell signals (sharp spikes). See docs/MARKET.md.
 
 Usage:
-  build_feed.py --bulk default-cards.json --history history.json.gz --out movers.json [--date YYYY-MM-DD]
+  build_feed.py --bulk default-cards.jsonl.gz --history history.json.gz --out movers.json [--date YYYY-MM-DD]
 The history file is read if present and rewritten.
 """
 
@@ -40,8 +40,18 @@ SELL_ABOVE_AVG = 1.25
 
 
 def iter_cards(path: str):
-    """Stream cards from the bulk file (ijson if installed, else json)."""
-    opener = gzip.open if path.endswith(".gz") else open
+    """Stream cards from the bulk file: JSON Lines (Scryfall's current format, one card
+    per line, optionally gzipped) or a JSON array (ijson if installed, else json)."""
+    with open(path, "rb") as f:
+        gz = f.read(2) == b"\x1f\x8b"  # by content: a download may already be decompressed
+    opener = gzip.open if gz else open
+    if ".jsonl" in os.path.basename(path):
+        with opener(path, "rt", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip().rstrip(",")
+                if line and line not in ("[", "]"):
+                    yield json.loads(line)
+        return
     with opener(path, "rb") as f:
         try:
             import ijson  # type: ignore
