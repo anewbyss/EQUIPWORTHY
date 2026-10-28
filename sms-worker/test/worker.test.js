@@ -41,7 +41,8 @@ describe("worker", () => {
     let r = await (await post({ reminders: [{ id: "d1-5m", at: "2026-11-01T16:55:00Z", body: "Five minutes" }, { id: "d1-open", at: "2026-11-01T17:00:00Z", body: "Live" }, { id: "d2-1h", at: "2026-11-01T18:00:00Z", body: "x" }] })).json();
     expect(r.saved).toHaveLength(3);
     r = await (await post({ reminders: [{ id: "d1-5m", at: "2026-11-01T16:56:00Z", body: "Five minutes (moved)" }], remove: ["d2-1h"] })).json();
-    expect(e.REMINDERS.m.size).toBe(2);
+    const stored = () => Object.keys(JSON.parse(e.REMINDERS.m.get("schedule")));
+    expect(stored()).toEqual(["d1-5m", "d1-open"]);
 
     const fetcher = vi.fn(async () => new Response("{}", { status: 201 }));
     expect(await sendDue(e, Date.parse("2026-11-01T16:55:30Z"), fetcher)).toBe(0);
@@ -52,7 +53,16 @@ describe("worker", () => {
     expect(new URLSearchParams(init.body).get("Body")).toBe("Five minutes (moved)");
     expect(await sendDue(e, Date.parse("2026-11-01T16:57:00Z"), fetcher)).toBe(0); // not re-sent
     expect(await sendDue(e, Date.parse("2026-11-01T21:00:00Z"), fetcher)).toBe(0); // 4h late: dropped, not sent
-    expect(e.REMINDERS.m.size).toBe(0);
+    expect(stored()).toEqual([]);
+  });
+
+  it("keeps a reminder when Twilio fails and retries it", async () => {
+    const e = env();
+    await handle(req("/reminders", { method: "POST", headers: auth(e), body: JSON.stringify({ reminders: [{ id: "d1-open", at: "2026-11-01T17:00:00Z", body: "Live" }] }) }), e, NOW);
+    const down = vi.fn(async () => new Response("busy", { status: 503 }));
+    expect(await sendDue(e, Date.parse("2026-11-01T17:00:10Z"), down)).toBe(0);
+    const up = vi.fn(async () => new Response("{}", { status: 201 }));
+    expect(await sendDue(e, Date.parse("2026-11-01T17:01:10Z"), up)).toBe(1);
   });
 
   it("reports health without auth", async () => {

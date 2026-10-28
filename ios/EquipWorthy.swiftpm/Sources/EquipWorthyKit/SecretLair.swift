@@ -53,6 +53,8 @@ public struct SecretLairDrop: Codable, Hashable, Identifiable, Sendable {
     public var marked: Bool
     public var checklist: [String: Bool]
     public var remindersSent: [String]
+    /// ntfy reminders already scheduled, as "key@saleStart" (shared across devices).
+    public var pushScheduled: [String]?
     public var queue: QueueLog?
     public var owned: OwnedDrop?
     public var notes: String?
@@ -161,6 +163,29 @@ public enum SecretLair {
 
     public static func readiness(_ d: SecretLairDrop) -> Double {
         Double(checklist.filter { isChecked(d, $0.key) }.count) / Double(checklist.count)
+    }
+
+    // MARK: Reminder plan (shared by notifications, ntfy, texts)
+
+    public struct Planned: Hashable, Sendable {
+        public var id: String
+        public var key: String
+        public var at: Date
+        public var title: String
+        public var body: String
+        public var url: URL
+    }
+
+    /// Every reminder still ahead for a followed drop with a sale time.
+    public static func planned(_ d: SecretLairDrop, now: Date = Date()) -> [Planned] {
+        guard d.marked, d.owned == nil, let s = d.saleStart, let start = parseISO(s) else { return [] }
+        return reminders.compactMap { r in
+            let at = start.addingTimeInterval(-r.before)
+            guard at > now else { return nil }
+            return Planned(id: "\(d.id)-\(r.key)", key: r.key, at: at,
+                           title: r.key == "open" ? "Secret Lair drop is live" : "Secret Lair reminder",
+                           body: r.text(d.name), url: launchURL(d))
+        }
     }
 
     // MARK: Place in line

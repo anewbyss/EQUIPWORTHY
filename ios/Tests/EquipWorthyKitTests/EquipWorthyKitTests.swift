@@ -348,3 +348,64 @@ final class SecretLairTests: XCTestCase {
         XCTAssertNil(SyncMerge.forSync(p).secretLairCatalog)
     }
 }
+
+final class ChannelsTests: XCTestCase {
+    let iso = ISO8601DateFormatter()
+    func at(_ s: String) -> Date { iso.date(from: s)! }
+
+    func drop() -> SecretLairDrop {
+        var d = SecretLairDrop(name: "Test Drop")
+        d.saleStart = "2026-11-01T17:00:00Z"
+        d.url = "https://secretlair.wizards.com/us/product/123"
+        return d
+    }
+
+    func testPlanned() {
+        let d = drop()
+        let plan = SecretLair.planned(d, now: at("2026-11-01T16:00:00Z"))
+        XCTAssertEqual(plan.map(\.key), ["15m", "5m", "open"])
+        XCTAssertEqual(plan.first?.id, "\(d.id)-15m")
+        XCTAssertEqual(plan.last?.url.absoluteString, d.url)
+        var owned = d
+        owned.owned = OwnedDrop(finish: .nonfoil, quantity: 1, paid: nil)
+        XCTAssertTrue(SecretLair.planned(owned, now: at("2026-11-01T16:00:00Z")).isEmpty)
+    }
+
+    func testNtfyPlanWindowAndDedup() {
+        var d = drop()
+        let early = Channels.ntfyPlan(d, now: at("2026-10-29T16:00:00Z"))
+        XCTAssertEqual(early.map(\.reminder.key), ["24h"])
+        let later = Channels.ntfyPlan(d, now: at("2026-10-30T18:00:00Z"))
+        XCTAssertEqual(later.map(\.tag), ["24h@2026-11-01T17:00:00Z", "1h@2026-11-01T17:00:00Z", "15m@2026-11-01T17:00:00Z", "5m@2026-11-01T17:00:00Z", "open@2026-11-01T17:00:00Z"])
+        d.pushScheduled = later.map(\.tag)
+        XCTAssertTrue(Channels.ntfyPlan(d, now: at("2026-10-30T18:00:00Z")).isEmpty)
+        d.saleStart = "2026-11-02T17:00:00Z"
+        XCTAssertFalse(Channels.ntfyPlan(d, now: at("2026-10-30T18:00:00Z")).isEmpty)
+    }
+
+    func testNtfyRequest() throws {
+        let r = try Channels.ntfyRequest(server: "https://ntfy.sh/", topic: "equipworthy-abc", title: "T", body: "B",
+                                         url: URL(string: "https://secretlair.wizards.com/"), at: Date(timeIntervalSince1970: 1_800_000_000))
+        XCTAssertEqual(r.url?.absoluteString, "https://ntfy.sh/equipworthy-abc")
+        XCTAssertEqual(r.value(forHTTPHeaderField: "At"), "1800000000")
+        XCTAssertEqual(r.value(forHTTPHeaderField: "Click"), "https://secretlair.wizards.com/")
+        XCTAssertEqual(r.httpBody, Data("B".utf8))
+    }
+
+    func testSmsPayloadAndRequest() throws {
+        let d = drop()
+        let p = Channels.smsPayload([d], previousIds: ["gone-24h", "\(d.id)-open"], now: at("2026-11-01T16:00:00Z"))
+        XCTAssertEqual(p.reminders.count, 3)
+        XCTAssertEqual(p.remove, ["gone-24h"])
+        XCTAssertTrue(p.reminders[0].body.hasPrefix("Secret Lair reminder: Test Drop"))
+        var s = AppSettings()
+        XCTAssertThrowsError(try Channels.smsRequest(s, path: "/test", body: Data()))
+        s.smsWorkerUrl = "https://ew-sms.example.workers.dev/"
+        s.smsKey = "k"
+        let r = try Channels.smsRequest(s, path: "/reminders", body: Data())
+        XCTAssertEqual(r.url?.absoluteString, "https://ew-sms.example.workers.dev/reminders")
+        XCTAssertEqual(r.value(forHTTPHeaderField: "Authorization"), "Bearer k")
+        s.smsWorkerUrl = "http://insecure.example"
+        XCTAssertThrowsError(try Channels.smsRequest(s, path: "/test", body: Data()))
+    }
+}

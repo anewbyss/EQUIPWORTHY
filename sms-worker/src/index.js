@@ -57,25 +57,34 @@ export async function sendSms(env, body, fetcher = fetch) {
   if (!res.ok) throw new Error(`Twilio ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
+// All reminders live in one KV entry, so the minute cron costs a single read
+// (Cloudflare's free plan allows 100,000 reads but only 1,000 lists a day).
+const KEY = "schedule";
+const MAX_STORED = 500;
+const load = async (env) => (await env.REMINDERS.get(KEY, "json")) || {};
+const store = (env, all) => env.REMINDERS.put(KEY, JSON.stringify(all));
+
 /** Send every reminder that's due. Called by the cron trigger. */
 export async function sendDue(env, now = Date.now(), fetcher = fetch) {
-  let cursor;
+  const all = await load(env);
   let sent = 0;
-  do {
-    const page = await env.REMINDERS.list({ cursor });
-    for (const k of page.keys) {
-      const r = await env.REMINDERS.get(k.name, "json");
-      if (!r) continue;
-      const at = Date.parse(r.at);
-      if (at > now) continue;
-      if (now - at <= LATE_MS) {
+  let changed = false;
+  for (const [id, r] of Object.entries(all)) {
+    const at = Date.parse(r.at);
+    if (at > now) continue;
+    if (now - at <= LATE_MS) {
+      try {
         await sendSms(env, r.body, fetcher);
         sent++;
+      } catch (e) {
+        console.error(`reminder ${id}: ${e.message || e}`);
+        continue; // keep it and retry next minute
       }
-      await env.REMINDERS.delete(k.name);
     }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+    delete all[id];
+    changed = true;
+  }
+  if (changed) await store(env, all);
   return sent;
 }
 
@@ -94,19 +103,23 @@ export async function handle(request, env, now = Date.now(), fetcher = fetch) {
       return json({ error: "bad json" }, 400);
     }
     const list = Array.isArray(payload.reminders) ? payload.reminders.slice(0, 200) : [];
+    const all = await load(env);
     const saved = [];
     const rejected = [];
     for (const r of list) {
       const v = validateReminder(r, now);
       if (typeof v === "string") rejected.push({ id: r && r.id, error: v });
       else {
-        await env.REMINDERS.put(v.id, JSON.stringify(v));
+        all[v.id] = v;
         saved.push(v.id);
       }
     }
     for (const id of Array.isArray(payload.remove) ? payload.remove.slice(0, 200) : []) {
-      if (typeof id === "string") await env.REMINDERS.delete(id);
+      if (typeof id === "string") delete all[id];
     }
+    const ids = Object.keys(all);
+    if (ids.length > MAX_STORED) for (const id of ids.sort((a, b) => Date.parse(all[b].at) - Date.parse(all[a].at)).slice(MAX_STORED)) delete all[id];
+    await store(env, all);
     return json({ saved, rejected });
   }
 

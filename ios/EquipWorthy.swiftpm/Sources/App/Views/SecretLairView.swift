@@ -87,6 +87,7 @@ struct DropDetailView: View {
     @State private var buyQty = 1
     @State private var paid = ""
     @State private var addToCollection = true
+    @State private var addingEvent = false
 
     private var drop: SecretLairDrop? { store.profile.secretLair?.first { $0.id == dropId } }
 
@@ -101,7 +102,11 @@ struct DropDetailView: View {
     }
 
     var body: some View {
-        if let d = drop { content(d) } else { Text("Drop removed").foregroundStyle(.secondary) }
+        if let d = drop {
+            content(d).sheet(isPresented: $addingEvent) { CalendarEventSheet(drop: d).ignoresSafeArea() }
+        } else {
+            Text("Drop removed").foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder private func content(_ d: SecretLairDrop) -> some View {
@@ -131,6 +136,9 @@ struct DropDetailView: View {
                     }
                 }
                 Toggle("Remind me", isOn: Binding(get: { d.marked }, set: { v in edit { $0.marked = v } }))
+                if d.saleStart != nil, SecretLair.state(d) != .ended {
+                    Button { addingEvent = true } label: { Label("Add to Calendar", systemImage: "calendar.badge.plus") }
+                }
                 if !d.cardIds.isEmpty {
                     LabeledContent("Cards worth", value: value.total.usd + (foil.total > value.total ? " (foil \(foil.total.usd))" : ""))
                     if let price = d.price, value.priced > 0 {

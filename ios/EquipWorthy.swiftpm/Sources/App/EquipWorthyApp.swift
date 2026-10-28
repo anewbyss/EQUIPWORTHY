@@ -11,6 +11,7 @@ struct EquipWorthyApp: App {
     @StateObject private var store = ProfileStore()
     @StateObject private var sync = SyncManager()
     @StateObject private var refresher = PriceRefresher()
+    @StateObject private var channels = ReminderChannels()
     @Environment(\.scenePhase) private var phase
 
     init() {
@@ -23,10 +24,12 @@ struct EquipWorthyApp: App {
                 .environmentObject(store)
                 .environmentObject(sync)
                 .environmentObject(refresher)
+                .environmentObject(channels)
                 .tint(Theme.accent)
                 .task {
                     sync.attach(store)
                     refresher.attach(store)
+                    channels.attach(store)
                 }
         }
         .onChange(of: phase) { _, newPhase in
@@ -37,6 +40,7 @@ struct EquipWorthyApp: App {
             case .active:
                 sync.appBecameActive()
                 refresher.checkDue()
+                Task { await channels.sync() }
             @unknown default:
                 break
             }

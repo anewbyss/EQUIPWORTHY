@@ -261,6 +261,14 @@ public struct AppSettings: Codable, Hashable, Sendable {
     /// Daily scan of popular Commander cards for market-wide movers and synergy picks.
     public var marketScan: Bool = true
     public var marketUniverse: Int = 525
+    /// Push alerts through the free ntfy app.
+    public var ntfyEnabled: Bool = false
+    public var ntfyServer: String = "https://ntfy.sh"
+    public var ntfyTopic: String?
+    /// Text messages through your own EquipWorthy SMS worker (Twilio).
+    public var smsEnabled: Bool = false
+    public var smsWorkerUrl: String?
+    public var smsKey: String?
 
     public init() {}
 
@@ -280,6 +288,12 @@ public struct AppSettings: Codable, Hashable, Sendable {
         moverMinPrice = try c.decodeIfPresent(Double.self, forKey: .moverMinPrice) ?? d.moverMinPrice
         marketScan = try c.decodeIfPresent(Bool.self, forKey: .marketScan) ?? d.marketScan
         marketUniverse = try c.decodeIfPresent(Int.self, forKey: .marketUniverse) ?? d.marketUniverse
+        ntfyEnabled = try c.decodeIfPresent(Bool.self, forKey: .ntfyEnabled) ?? d.ntfyEnabled
+        ntfyServer = try c.decodeIfPresent(String.self, forKey: .ntfyServer) ?? d.ntfyServer
+        ntfyTopic = try c.decodeIfPresent(String.self, forKey: .ntfyTopic)
+        smsEnabled = try c.decodeIfPresent(Bool.self, forKey: .smsEnabled) ?? d.smsEnabled
+        smsWorkerUrl = try c.decodeIfPresent(String.self, forKey: .smsWorkerUrl)
+        smsKey = try c.decodeIfPresent(String.self, forKey: .smsKey)
     }
 
     public func multiplier(_ c: Condition) -> Double { conditionMultipliers[c.rawValue] ?? 1 }
