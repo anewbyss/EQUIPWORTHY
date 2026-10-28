@@ -136,6 +136,20 @@ export default function SettingsPage() {
               </select>
             </label>
           )}
+          <label className="small row gap"><input type="checkbox" checked={p.settings.marketFeed !== false} onChange={(e) => setS({ marketFeed: e.target.checked })} /> All-cards market feed (daily risers, fallers, buy and sell signals across every printing)</label>
+          {p.settings.marketFeed !== false && (
+            <>
+              <label className="small">
+                Buy/sell signal notifications{" "}
+                <select value={p.settings.signalScope ?? "mine"} onChange={(e) => setS({ signalScope: e.target.value as "mine" | "all" | "off" })}>
+                  <option value="mine">Only cards I own or want</option>
+                  <option value="all">Mine, plus the market's top signals each day</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              <label className="small row gap"><input type="checkbox" checked={p.settings.signalPush !== false} onChange={(e) => setS({ signalPush: e.target.checked })} /> Also send signals as push alerts (needs push alerts set up under Reminder delivery)</label>
+            </>
+          )}
           <label className="small row gap"><input type="checkbox" checked={p.settings.notifications} onChange={(e) => setS({ notifications: e.target.checked })} /> Price-alert notifications</label>
           <p className="muted small">Prices come from Scryfall, which publishes TCGplayer market prices in USD once a day. EquipWorthy keeps one snapshot per day per card on this device to build price history.</p>
         </div>

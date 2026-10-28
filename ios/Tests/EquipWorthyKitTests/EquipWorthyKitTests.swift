@@ -553,3 +553,53 @@ final class DropSourceTests: XCTestCase {
         XCTAssertEqual(SecretLair.sortDrops([d1, d2], by: .ready).map(\.name), ["B", "A"])
     }
 }
+
+final class FeedTests: XCTestCase {
+    func id(_ n: Int) -> String { "00000000-0000-0000-0000-" + String(format: "%012d", n) }
+
+    var feedJSON: String {
+        """
+        {"generatedAt": "2026-10-28T15:40:00Z", "date": "2026-10-28", "scanned": 98000, "historyDays": 9, "entries": [
+          {"id": "\(id(1))", "finish": "nonfoil", "name": "Card 1", "oracleId": "o1", "set": "abc", "price": 20, "d1": 100, "d7": 120, "avg30": 11, "lists": ["up1", "up7", "sell"], "signal": "sell", "tcgplayer": "https://tcg/1"},
+          {"id": "\(id(9))", "finish": "foil", "name": "Card 2", "oracleId": "o2", "set": "xyz", "price": 30, "d1": 40, "lists": ["up1"]},
+          {"id": "\(id(3))", "finish": "nonfoil", "name": "Card 3", "oracleId": "o3", "set": "abc", "price": 25, "d7": -37.5, "avg30": 38, "lists": ["down7", "buy"], "signal": "buy"},
+          {"id": "\(id(4))", "finish": "nonfoil", "name": "Card 4", "oracleId": "o4", "set": "abc", "price": 8, "d1": -20, "lists": ["down1"]},
+          {"id": "bad", "name": "Bad", "price": 1, "lists": []},
+          {"id": "\(id(5))", "name": "Weird", "price": 3, "lists": ["up1", "evil"], "image": "javascript:alert(1)"}
+        ]}
+        """
+    }
+
+    func testParseAndSignals() {
+        let feed = Feed.parse(Data(feedJSON.utf8))!
+        XCTAssertEqual(feed.entries.map(\.name), ["Card 1", "Card 2", "Card 3", "Card 4", "Weird"])
+        XCTAssertEqual(feed.entries[4].lists, ["up1"])
+        XCTAssertNil(feed.entries[4].image)
+        XCTAssertNil(Feed.parse(Data("{}".utf8)))
+        XCTAssertEqual(Feed.change(feed.entries[0]), "+100% today, +120% this week")
+        XCTAssertEqual(Feed.change(feed.entries[2]), "-38% this week")
+
+        var p = Profile(name: "t")
+        p.cardCache = [id(1): CardSummary(id: id(1), oracleId: "o1", name: "Card 1", set: "abc", collectorNumber: "1"),
+                       id(2): CardSummary(id: id(2), oracleId: "o2", name: "Card 2", set: "abc", collectorNumber: "2"),
+                       id(3): CardSummary(id: id(3), oracleId: "o3", name: "Card 3", set: "abc", collectorNumber: "3")]
+        p.collection = [CollectionItem(cardId: id(1), name: "Card 1", set: "abc", collectorNumber: "1", finish: .nonfoil, quantity: 3),
+                        CollectionItem(cardId: id(2), name: "Card 2", set: "abc", collectorNumber: "2", finish: .nonfoil, quantity: 1)]
+        p.watchlist = [WatchItem(cardId: id(3), name: "Card 3", finish: .nonfoil)]
+        let s = Feed.personalSignals(p, feed: feed)
+        XCTAssertEqual(s.map { "\($0.kind):\($0.entry.name):\($0.samePrint)" }, ["sell:Card 1:true", "buy:Card 3:true", "sell:Card 2:false"])
+        XCTAssertEqual(s[0].message, "Hot sell: Card 1 (ABC) is +100% today, +120% this week, now $20.00. You own 3 (about $60.00).")
+        XCTAssertTrue(s[1].message.contains("It's on your watchlist"))
+
+        let now = ISO8601DateFormatter().date(from: "2026-10-28T16:00:00Z")!
+        let r1 = Feed.apply(p, feed: feed, now: now)
+        XCTAssertEqual(r1.fresh.count, 3)
+        XCTAssertEqual(r1.profile.alerts.map(\.kind), [.sell, .buy, .sell])
+        XCTAssertTrue(Feed.apply(r1.profile, feed: feed, now: now).fresh.isEmpty)
+        var off = p
+        off.settings.signalScope = "off"
+        XCTAssertTrue(Feed.apply(off, feed: feed, now: now).fresh.isEmpty)
+        XCTAssertFalse(Feed.due(r1.profile, now: now.addingTimeInterval(3600)))
+        XCTAssertTrue(Feed.due(r1.profile, now: now.addingTimeInterval(4 * 3600)))
+    }
+}

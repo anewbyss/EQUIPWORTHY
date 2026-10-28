@@ -64,6 +64,7 @@ public enum SyncMerge {
         q.cardCache = [:]
         q.market = nil
         q.secretLairCatalog = nil
+        q.allCards = nil
         return q
     }
 
@@ -96,6 +97,7 @@ public enum SyncMerge {
         m.cardCache = [:]
         m.market = nil
         m.secretLairCatalog = nil
+        m.allCards = nil
         return m
     }
 }

@@ -115,7 +115,7 @@ export interface Alert {
   id: string;
   cardId: string;
   name: string;
-  kind: "below" | "above" | "move" | "spike" | "crash";
+  kind: "below" | "above" | "move" | "spike" | "crash" | "sell" | "buy";
   message: string;
   createdAt: string;
   read: boolean;
@@ -171,6 +171,12 @@ export interface Settings {
   /** Daily scan of popular Commander cards for market-wide movers and synergy picks. */
   marketScan: boolean;
   marketUniverse: number;
+  /** Download the daily all-cards market feed (risers, fallers, buy and sell signals). */
+  marketFeed: boolean;
+  /** Which buy/sell signals notify you: only cards you own or want, also the market's top signals, or none. */
+  signalScope: "mine" | "all" | "off";
+  /** Also send buy/sell signals as push alerts (when ntfy push alerts are set up). */
+  signalPush: boolean;
   /** Push alerts through the free ntfy app (https://ntfy.sh). */
   ntfyEnabled: boolean;
   ntfyServer: string;
@@ -211,6 +217,58 @@ export interface Profile {
   secretLair?: SecretLairDrop[];
   /** Recent Secret Lair cards from Scryfall, grouped into drops. Rebuilt on each device, not synced. */
   secretLairCatalog?: SecretLairCatalog;
+  /** The daily all-cards market feed and the buy/sell signals it raised for you. Downloaded on each device, not synced. */
+  allCards?: AllCardsMarket;
+}
+
+/** One card in the daily market feed (scripts/market/build_feed.py → movers.json). */
+export interface FeedEntry {
+  id: string; // Scryfall id
+  finish: "nonfoil" | "foil";
+  name: string;
+  oracleId?: string;
+  set: string;
+  setName?: string;
+  number?: string;
+  rarity?: string;
+  image?: string;
+  tcgplayer?: string;
+  edhrecRank?: number;
+  price: number;
+  d1?: number;
+  d7?: number;
+  d30?: number;
+  move1?: number;
+  move7?: number;
+  avg30?: number;
+  lists: string[]; // "up1" | "down1" | "up7" | "down7" | "buy" | "sell"
+  signal?: "buy" | "sell";
+}
+
+export interface MarketFeed {
+  generatedAt: string;
+  date: string;
+  scanned: number;
+  historyDays: number;
+  entries: FeedEntry[];
+}
+
+/** A buy or sell signal for a card you own or want. */
+export interface PriceSignal {
+  key: string; // kind:cardId:finish:feedDate, for "already told you"
+  kind: "sell" | "buy";
+  entry: FeedEntry;
+  samePrint: boolean; // false when you own/want another printing of the card
+  owned: number;
+  where?: string; // for buys: "watchlist", "wishlist" or a deck name
+  message: string;
+}
+
+export interface AllCardsMarket {
+  feed: MarketFeed;
+  fetchedAt: string;
+  signals: PriceSignal[];
+  sent: string[]; // signal keys already notified
 }
 
 /** A Secret Lair drop you're following. */
@@ -398,6 +456,9 @@ export const defaultSettings = (): Settings => ({
   moverMinPrice: 1,
   marketScan: true,
   marketUniverse: 525,
+  marketFeed: true,
+  signalScope: "mine",
+  signalPush: true,
   ntfyEnabled: false,
   ntfyServer: "https://ntfy.sh",
   smsEnabled: false,

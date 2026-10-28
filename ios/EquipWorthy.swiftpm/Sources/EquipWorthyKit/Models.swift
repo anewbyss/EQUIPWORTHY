@@ -188,7 +188,7 @@ public struct WatchItem: Codable, Hashable, Identifiable, Sendable {
 }
 
 public struct PriceAlert: Codable, Hashable, Identifiable, Sendable {
-    public enum Kind: String, Codable, Sendable { case below, above, move, spike, crash }
+    public enum Kind: String, Codable, Sendable { case below, above, move, spike, crash, sell, buy }
     public var id: String
     public var cardId: String
     public var name: String
@@ -270,6 +270,12 @@ public struct AppSettings: Codable, Hashable, Sendable {
     /// Daily scan of popular Commander cards for market-wide movers and synergy picks.
     public var marketScan: Bool = true
     public var marketUniverse: Int = 525
+    /// Download the daily all-cards market feed (risers, fallers, buy and sell signals).
+    public var marketFeed: Bool = true
+    /// Which buy/sell signals notify you: "mine", "all" (mine plus the market's top signals) or "off".
+    public var signalScope: String = "mine"
+    /// Also send buy/sell signals as push alerts (when ntfy is set up).
+    public var signalPush: Bool = true
     /// Push alerts through the free ntfy app.
     public var ntfyEnabled: Bool = false
     public var ntfyServer: String = "https://ntfy.sh"
@@ -297,6 +303,9 @@ public struct AppSettings: Codable, Hashable, Sendable {
         moverMinPrice = try c.decodeIfPresent(Double.self, forKey: .moverMinPrice) ?? d.moverMinPrice
         marketScan = try c.decodeIfPresent(Bool.self, forKey: .marketScan) ?? d.marketScan
         marketUniverse = try c.decodeIfPresent(Int.self, forKey: .marketUniverse) ?? d.marketUniverse
+        marketFeed = try c.decodeIfPresent(Bool.self, forKey: .marketFeed) ?? d.marketFeed
+        signalScope = try c.decodeIfPresent(String.self, forKey: .signalScope) ?? d.signalScope
+        signalPush = try c.decodeIfPresent(Bool.self, forKey: .signalPush) ?? d.signalPush
         ntfyEnabled = try c.decodeIfPresent(Bool.self, forKey: .ntfyEnabled) ?? d.ntfyEnabled
         ntfyServer = try c.decodeIfPresent(String.self, forKey: .ntfyServer) ?? d.ntfyServer
         ntfyTopic = try c.decodeIfPresent(String.self, forKey: .ntfyTopic)
@@ -373,6 +382,8 @@ public struct Profile: Codable, Hashable, Identifiable, Sendable {
     public var secretLair: [SecretLairDrop]?
     /// Recent Secret Lair cards from Scryfall, grouped into drops. Not synced.
     public var secretLairCatalog: SecretLairCatalog?
+    /// The daily all-cards market feed and the buy/sell signals it raised for you. Not synced.
+    public var allCards: AllCardsMarket?
 
     public init(name: String) {
         schemaVersion = currentSchemaVersion
@@ -412,6 +423,7 @@ public struct Profile: Codable, Hashable, Identifiable, Sendable {
         market = try? c.decodeIfPresent(MarketData.self, forKey: .market)
         secretLair = try c.decodeIfPresent([SecretLairDrop].self, forKey: .secretLair)
         secretLairCatalog = try? c.decodeIfPresent(SecretLairCatalog.self, forKey: .secretLairCatalog)
+        allCards = try? c.decodeIfPresent(AllCardsMarket.self, forKey: .allCards)
     }
 
     public func card(_ id: String) -> CardSummary? { cardCache[id] }

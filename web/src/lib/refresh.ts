@@ -4,10 +4,11 @@
 
 import { useSyncExternalStore } from "react";
 import * as scry from "./scryfall";
-import { detectMovers, moverText, scoreSynergy, type MoverInput } from "./market";
+import { FEED_URL, applyFeed, detectMovers, feedDue, feedEntryText, moverText, parseFeed, scoreSynergy, type MoverInput } from "./market";
+import { ntfySend } from "./channels";
 import { appendPoint, refreshPrices, trackedIds } from "./prices";
 import { getState, update } from "./store";
-import { historyKey, today, type CardSummary, type MarketData, type Mover, type Profile } from "./types";
+import { historyKey, today, type CardSummary, type FeedEntry, type MarketData, type Mover, type PriceSignal, type Profile } from "./types";
 
 export interface RefreshStatus {
   running: boolean;
@@ -148,9 +149,55 @@ export async function refreshAll(opts: { force?: boolean } = {}): Promise<void> 
       update((cur) => applyMarketScan(cur, universe, newCards, sets));
       notifyMarket(getState().profile!);
     }
+    if (opts.force || feedDue(getState().profile!)) await refreshFeed().catch(() => undefined); // the feed is optional; tracked prices already updated
     emit({ running: false, step: null });
   } catch (e) {
     emit({ running: false, step: null, error: `Refresh failed: ${(e as Error).message}` });
+  }
+}
+
+/** Download the daily all-cards feed and raise buy/sell signals for your cards. */
+export async function refreshFeed(fetcher = fetch): Promise<PriceSignal[]> {
+  const p0 = getState().profile;
+  if (!p0 || p0.settings.marketFeed === false) return [];
+  emit({ step: "Checking all-cards market feed…" });
+  const res = await fetcher(FEED_URL, { cache: "no-cache" });
+  if (!res.ok) throw new Error(res.status === 404 ? "The market feed hasn't been published yet" : `Market feed returned ${res.status}`);
+  const feed = parseFeed(await res.json());
+  if (!feed) throw new Error("The market feed couldn't be read");
+  let fresh: PriceSignal[] = [];
+  let digest: FeedEntry[] = [];
+  update((cur) => {
+    const r = applyFeed(cur, feed);
+    fresh = r.fresh;
+    digest = r.digest;
+    return r.profile;
+  });
+  void notifySignals(getState().profile!, fresh, digest);
+  return fresh;
+}
+
+const APP_MARKET_URL = "https://anewbyss.github.io/EQUIPWORTHY/#/market";
+
+async function notifySignals(p: Profile, fresh: PriceSignal[], digest: FeedEntry[]) {
+  const items = [
+    ...fresh.slice(0, 5).map((s) => ({ title: s.kind === "sell" ? "Hot sell" : "Buy signal", body: s.message, url: s.entry.tcgplayer })),
+    ...(digest.length ? [{ title: "Market signals today", body: digest.map(feedEntryText).join("\n"), url: APP_MARKET_URL }] : []),
+  ];
+  if (fresh.length > 5) items.push({ title: "More signals", body: `${fresh.length - 5} more buy/sell signals in Market Watch.`, url: APP_MARKET_URL });
+  if (!items.length) return;
+  if (p.settings.notifications && "Notification" in window && Notification.permission === "granted") {
+    for (const it of items) {
+      try {
+        const n = new Notification(it.title, { body: it.body, tag: it.body });
+        if (it.url) n.onclick = () => (window.focus(), window.open(it.url, "_blank", "noopener"));
+      } catch {
+        /* notifications need a service worker on some browsers */
+      }
+    }
+  }
+  if (p.settings.signalPush && p.settings.ntfyEnabled && p.settings.ntfyTopic) {
+    for (const it of items) await ntfySend(p.settings, { title: it.title, body: it.body, url: it.url ?? APP_MARKET_URL }).catch(() => undefined);
   }
 }
 
@@ -169,7 +216,7 @@ export function startAutoRefresh() {
   started = true;
   const check = () => {
     const p = getState().profile;
-    if (p && (pricesDue(p) || marketDue(p))) void refreshAll();
+    if (p && (pricesDue(p) || marketDue(p) || feedDue(p))) void refreshAll();
   };
   check();
   document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && check());

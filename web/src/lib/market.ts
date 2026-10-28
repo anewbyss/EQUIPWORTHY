@@ -1,7 +1,7 @@
 // Fast-mover detection and synergy prediction. Pure functions; the iOS port is
 // ios/EquipWorthy.swiftpm/Sources/EquipWorthyKit/Market.swift. See docs/MARKET.md.
 
-import type { CardSummary, Finish, Mover, PriceSeries, Settings, SynergyPick } from "./types";
+import { uid, type Alert, type CardSummary, type FeedEntry, type Finish, type MarketFeed, type Mover, type PriceSeries, type PriceSignal, type Profile, type Settings, type SynergyPick } from "./types";
 
 // ---------------- fast movers ----------------
 
@@ -202,3 +202,138 @@ export function scoreSynergy(candidates: CardSummary[], newCards: CardSummary[],
 
 /** Forecast impact (% per 30 days) for a synergy score. */
 export const synergyImpact = (score: number) => Math.min(6, Math.round(score * 0.8 * 10) / 10);
+
+// ---------------- all-cards market feed: buy and sell signals ----------------
+
+/** Written once a day by .github/workflows/market.yml (scripts/market/build_feed.py). */
+export const FEED_URL = "https://raw.githubusercontent.com/anewbyss/EQUIPWORTHY/market-data/movers.json";
+
+const LISTS = new Set(["up1", "down1", "up7", "down7", "buy", "sell"]);
+const optNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+const optStr = (v: unknown, max = 200) => (typeof v === "string" && v ? v.slice(0, max) : undefined);
+const optHttps = (v: unknown) => (typeof v === "string" && /^https:\/\//i.test(v) ? v : undefined);
+
+/** Validate the downloaded feed; returns null if it isn't one. */
+export function parseFeed(json: unknown): MarketFeed | null {
+  const f = json as Record<string, unknown>;
+  if (!f || typeof f.date !== "string" || !Array.isArray(f.entries)) return null;
+  const entries: FeedEntry[] = [];
+  for (const raw of f.entries.slice(0, 2000)) {
+    const r = raw as Record<string, unknown>;
+    const price = optNum(r?.price);
+    if (typeof r?.id !== "string" || !/^[0-9a-f-]{36}$/i.test(r.id) || typeof r.name !== "string" || price == null) continue;
+    entries.push({
+      id: r.id, finish: r.finish === "foil" ? "foil" : "nonfoil", name: r.name.slice(0, 200), oracleId: optStr(r.oracleId, 40),
+      set: optStr(r.set, 10) ?? "", setName: optStr(r.setName), number: optStr(r.number, 12), rarity: optStr(r.rarity, 20),
+      image: optHttps(r.image), tcgplayer: optHttps(r.tcgplayer), edhrecRank: optNum(r.edhrecRank),
+      price, d1: optNum(r.d1), d7: optNum(r.d7), d30: optNum(r.d30), move1: optNum(r.move1), move7: optNum(r.move7), avg30: optNum(r.avg30),
+      lists: Array.isArray(r.lists) ? r.lists.filter((x): x is string => typeof x === "string" && LISTS.has(x)) : [],
+      signal: r.signal === "buy" || r.signal === "sell" ? r.signal : undefined,
+    });
+  }
+  return { generatedAt: optStr(f.generatedAt, 40) ?? f.date, date: f.date, scanned: optNum(f.scanned) ?? 0, historyDays: optNum(f.historyDays) ?? 0, entries };
+}
+
+const pctText = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(0)}%`;
+
+/** "+35% this week" / "−18% today", whichever move is bigger. */
+export function feedChange(e: Pick<FeedEntry, "d1" | "d7">): string {
+  const parts: string[] = [];
+  if (e.d1 != null && Math.abs(e.d1) >= 1) parts.push(`${pctText(e.d1)} today`);
+  if (e.d7 != null && Math.abs(e.d7) >= 1) parts.push(`${pctText(e.d7)} this week`);
+  return parts.join(", ") || "flat";
+}
+
+const label = (e: FeedEntry) => `${e.name} (${e.set.toUpperCase()}${e.finish === "foil" ? " foil" : ""})`;
+
+/**
+ * Sell signals for cards you own that are spiking, and buy signals for cards on your
+ * watchlist, wishlist or in a deck (and not owned) that are dropping. Matches the exact
+ * printing first, then other printings of the same card.
+ */
+export function personalSignals(p: Profile, feed: MarketFeed): PriceSignal[] {
+  const oracleOf = (id: string) => p.cardCache[id]?.oracleId;
+  const owned = new Map<string, number>(); // cardId:finish -> qty
+  const ownedOracle = new Map<string, number>();
+  for (const c of p.collection) {
+    owned.set(`${c.cardId}:${c.finish === "foil" ? "foil" : "nonfoil"}`, (owned.get(`${c.cardId}:${c.finish === "foil" ? "foil" : "nonfoil"}`) ?? 0) + c.quantity);
+    const o = oracleOf(c.cardId);
+    if (o) ownedOracle.set(o, (ownedOracle.get(o) ?? 0) + c.quantity);
+  }
+  const ownedIds = new Set(p.collection.map((c) => c.cardId));
+  const wanted = new Map<string, string>(); // cardId or "o:"+oracleId -> where
+  const want = (id: string, where: string) => {
+    if (ownedIds.has(id)) return;
+    if (!wanted.has(id)) wanted.set(id, where);
+    const o = oracleOf(id);
+    if (o && !wanted.has(`o:${o}`)) wanted.set(`o:${o}`, where);
+  };
+  p.watchlist.forEach((w) => want(w.cardId, "watchlist"));
+  p.wishlist.forEach((w) => want(w.cardId, "wishlist"));
+  p.decks.forEach((d) => d.cards.forEach((c) => c.board !== "maybe" && want(c.cardId, `deck "${d.name}"`)));
+
+  const out: PriceSignal[] = [];
+  for (const e of feed.entries) {
+    const up = e.lists.some((l) => l === "up1" || l === "up7" || l === "sell");
+    const down = e.lists.some((l) => l === "down1" || l === "down7" || l === "buy");
+    if (up) {
+      const same = owned.get(`${e.id}:${e.finish}`) ?? 0;
+      const other = !same && e.oracleId ? ownedOracle.get(e.oracleId) ?? 0 : 0;
+      if (same || other) {
+        out.push({
+          key: `sell:${e.id}:${e.finish}:${feed.date}`, kind: "sell", entry: e, samePrint: !!same, owned: same || other,
+          message: same
+            ? `Hot sell: ${label(e)} is ${feedChange(e)}, now $${e.price.toFixed(2)}. You own ${same} (about $${(same * e.price).toFixed(2)}).`
+            : `${label(e)} is ${feedChange(e)} to $${e.price.toFixed(2)}. You own another printing of ${e.name}: check its price, it may be rising too.`,
+        });
+      }
+    }
+    if (down) {
+      const where = wanted.get(e.id) ?? (e.oracleId ? wanted.get(`o:${e.oracleId}`) : undefined);
+      if (where) {
+        const same = wanted.has(e.id);
+        out.push({
+          key: `buy:${e.id}:${e.finish}:${feed.date}`, kind: "buy", entry: e, samePrint: same, owned: 0, where,
+          message: `Buy signal: ${label(e)} is ${feedChange(e)}, now $${e.price.toFixed(2)}${e.avg30 ? ` (30-day average $${e.avg30.toFixed(2)})` : ""}. It's on your ${where}${same ? "" : " (another printing)"}.`,
+        });
+      }
+    }
+  }
+  // Strongest first: exact printings, then size of the move.
+  const size = (s: PriceSignal) => Math.max(Math.abs(s.entry.d1 ?? 0), Math.abs(s.entry.d7 ?? 0));
+  return out.sort((a, b) => Number(b.samePrint) - Number(a.samePrint) || size(b) - size(a));
+}
+
+/** The market's strongest signals, for "all" notifications: top sells and buys. */
+export function topSignals(feed: MarketFeed, n = 3): FeedEntry[] {
+  const sells = feed.entries.filter((e) => e.signal === "sell").slice(0, n);
+  const buys = feed.entries.filter((e) => e.signal === "buy").slice(0, n);
+  return [...sells, ...buys];
+}
+
+export const feedEntryText = (e: FeedEntry) =>
+  `${e.signal === "sell" ? "Sell spike" : e.signal === "buy" ? "Buy dip" : "Mover"}: ${label(e)} ${feedChange(e)}, now $${e.price.toFixed(2)}`;
+
+/**
+ * Fold a freshly downloaded feed into the profile: recompute your signals, add an alert
+ * for each new one, and report what to notify (each signal once per feed day).
+ */
+export function applyFeed(p: Profile, feed: MarketFeed, now = new Date()): { profile: Profile; fresh: PriceSignal[]; digest: FeedEntry[] } {
+  const signals = personalSignals(p, feed);
+  const sent = new Set(p.allCards?.sent ?? []);
+  const scope = p.settings.signalScope;
+  const fresh = scope === "off" ? [] : signals.filter((s) => !sent.has(s.key));
+  const digestKey = `digest:${feed.date}`;
+  const digest = scope === "all" && !sent.has(digestKey) ? topSignals(feed).filter((e) => !signals.some((s) => s.entry.id === e.id)) : [];
+  const alerts: Alert[] = fresh.map((s) => ({ id: uid(), cardId: s.entry.id, name: s.entry.name, kind: s.kind, message: s.message, createdAt: now.toISOString(), read: false }));
+  const newSent = [...sent, ...fresh.map((s) => s.key), ...(digest.length ? [digestKey] : [])].slice(-500);
+  return {
+    profile: { ...p, alerts: [...alerts, ...p.alerts].slice(0, 300), allCards: { feed, fetchedAt: now.toISOString(), signals, sent: newSent } },
+    fresh,
+    digest,
+  };
+}
+
+/** The feed is fetched at most every 3 hours (it changes once a day). */
+export const feedDue = (p: Profile, now = new Date()) =>
+  p.settings.marketFeed !== false && (!p.allCards || now.getTime() - Date.parse(p.allCards.fetchedAt) > 3 * 3_600_000);

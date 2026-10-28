@@ -2,30 +2,31 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Change, Empty, PageHeader, Thumb } from "../components/ui";
 import { usd } from "../lib/deckstats";
+import { feedChange } from "../lib/market";
 import { refreshAll, useRefreshStatus } from "../lib/refresh";
 import { update, useProfile } from "../lib/store";
-import { uid, type Mover } from "../lib/types";
+import { uid, type FeedEntry, type Finish, type Mover, type PriceSignal } from "../lib/types";
 
-type Tab = "movers" | "synergy";
+type Tab = "all" | "movers" | "synergy";
 
 export default function MarketPage() {
   const p = useProfile();
   const st = useRefreshStatus();
-  const [tab, setTab] = useState<Tab>("movers");
+  const [tab, setTab] = useState<Tab>("all");
   const m = p.market;
   const movers = m?.movers ?? [];
   const yours = movers.filter((x) => x.tracked);
   const market = movers.filter((x) => !x.tracked);
   const watched = new Set(p.watchlist.map((w) => w.cardId));
 
-  const watch = (cardId: string, name: string) =>
-    update((cur) => (cur.watchlist.some((w) => w.cardId === cardId) ? cur : { ...cur, watchlist: [...cur.watchlist, { id: uid(), cardId, name, finish: "nonfoil", pctMove: cur.settings.spikePct7d, addedAt: new Date().toISOString() }] }));
+  const watch = (cardId: string, name: string, finish: Finish = "nonfoil") =>
+    update((cur) => (cur.watchlist.some((w) => w.cardId === cardId) ? cur : { ...cur, watchlist: [...cur.watchlist, { id: uid(), cardId, name, finish, pctMove: cur.settings.spikePct7d, addedAt: new Date().toISOString() }] }));
 
   return (
     <>
       <PageHeader
         title="Market Watch"
-        sub={m?.lastScan ? `Last market scan ${new Date(m.lastScan).toLocaleString()} · ${Object.keys(m.history).length} popular Commander cards tracked daily` : "Scans popular Commander cards once a day for fast movers and new-set synergies."}
+        sub={p.allCards ? `All-cards feed for ${p.allCards.feed.date}: ${p.allCards.feed.scanned.toLocaleString()} printings checked` + (m?.lastScan ? ` · popular-card scan ${new Date(m.lastScan).toLocaleString()}` : "") : "Daily price moves across every card, buy and sell signals for your cards, and new-set synergies."}
       >
         <button className="btn primary" disabled={st.running} onClick={() => void refreshAll({ force: true })}>{st.running ? st.step ?? "Scanning…" : "Scan now"}</button>
       </PageHeader>
@@ -33,9 +34,12 @@ export default function MarketPage() {
       {st.error && <p className="error small">{st.error}</p>}
 
       <div className="tabs">
+        <button className={tab === "all" ? "on" : ""} onClick={() => setTab("all")}>All cards{p.allCards?.signals.length ? ` (${p.allCards.signals.length} for you)` : ""}</button>
         <button className={tab === "movers" ? "on" : ""} onClick={() => setTab("movers")}>Fast movers ({movers.length})</button>
         <button className={tab === "synergy" ? "on" : ""} onClick={() => setTab("synergy")}>Synergy watch ({m?.synergy.length ?? 0})</button>
       </div>
+
+      {tab === "all" && <AllCards watched={watched} onWatch={watch} />}
 
       {tab === "movers" && (
         <>
@@ -126,6 +130,119 @@ function MoverTable({ title, rows, empty, watched, onWatch, cards }: { title: st
       ) : (
         <Empty>{empty}</Empty>
       )}
+    </div>
+  );
+}
+
+type FeedList = "sell" | "buy" | "up1" | "down1" | "up7" | "down7";
+const FEED_LISTS: { key: FeedList; label: string; help: string }[] = [
+  { key: "sell", label: "Sell spikes", help: "Up 30%+ this week, at least $3, and well above the 30-day average. Prices often settle after a spike." },
+  { key: "buy", label: "Buy dips", help: "Popular Commander cards (EDHREC top 15,000) down 20%+ this week and below their 30-day average." },
+  { key: "up1", label: "Risers today", help: "Biggest one-day gains (at least $1 and a $0.50 move)." },
+  { key: "down1", label: "Fallers today", help: "Biggest one-day drops (at least $1 and a $0.50 move)." },
+  { key: "up7", label: "Risers this week", help: "Biggest 7-day gains (at least $1 and a $1 move)." },
+  { key: "down7", label: "Fallers this week", help: "Biggest 7-day drops (at least $1 and a $1 move)." },
+];
+
+function AllCards({ watched, onWatch }: { watched: Set<string>; onWatch: (id: string, name: string, finish: Finish) => void }) {
+  const p = useProfile();
+  const st = useRefreshStatus();
+  const [list, setList] = useState<FeedList>("sell");
+  const [minPrice, setMinPrice] = useState(0);
+  const [q, setQ] = useState("");
+  const a = p.allCards;
+  if (p.settings.marketFeed === false) return <Empty>The all-cards feed is off. Turn it on in <Link to="/settings">Settings</Link>.</Empty>;
+  if (!a) {
+    return (
+      <Empty>
+        {st.running ? "Loading the market feed…" : <>No market feed yet. <button className="linkish" onClick={() => void refreshAll({ force: true })}>Load it now</button>. It's published once a day; if this is a brand-new setup, the first one appears after the daily market scan runs.</>}
+      </Empty>
+    );
+  }
+  const info = FEED_LISTS.find((l) => l.key === list)!;
+  const rows = a.feed.entries
+    .filter((e) => e.lists.includes(list) && e.price >= minPrice && (!q || e.name.toLowerCase().includes(q.toLowerCase())))
+    .sort((x, y) => (list === "down1" ? (x.d1 ?? 0) - (y.d1 ?? 0) : list === "up1" ? (y.d1 ?? 0) - (x.d1 ?? 0) : list.startsWith("down") || list === "buy" ? (x.d7 ?? 0) - (y.d7 ?? 0) : (y.d7 ?? 0) - (x.d7 ?? 0)));
+  return (
+    <>
+      <SignalsForYou signals={a.signals} />
+      <div className="card">
+        <div className="row gap" style={{ marginBottom: "0.5rem" }}>
+          {FEED_LISTS.map((l) => <button key={l.key} className={`btn small ${list === l.key ? "primary" : ""}`} onClick={() => setList(l.key)}>{l.label} ({a.feed.entries.filter((e) => e.lists.includes(l.key)).length})</button>)}
+        </div>
+        <div className="row gap small">
+          <input placeholder="Filter by name" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Filter cards" style={{ flex: 1, minWidth: 140 }} />
+          <label className="row gap">Min price $<input type="number" min={0} step={1} value={minPrice} onChange={(e) => setMinPrice(Number(e.target.value) || 0)} style={{ width: "5rem" }} aria-label="Minimum price" /></label>
+        </div>
+        <p className="muted small">{info.help}</p>
+        {rows.length ? <FeedTable rows={rows} watched={watched} onWatch={onWatch} /> : <Empty>{a.feed.historyDays < 2 ? "The feed's price history is just starting: moves appear after its second daily scan, weekly moves after a week." : "Nothing in this list right now."}</Empty>}
+        <p className="muted small" style={{ marginBottom: 0 }}>
+          Prices are TCGplayer market prices from Scryfall for every English paper printing, checked once a day ({a.feed.historyDays} days of history so far). Signals are heads-ups, not financial advice.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function SignalsForYou({ signals }: { signals: PriceSignal[] }) {
+  const sells = signals.filter((s) => s.kind === "sell");
+  const buys = signals.filter((s) => s.kind === "buy");
+  return (
+    <div className="grid2">
+      <div className="card">
+        <h2>Hot sells: your cards</h2>
+        {sells.length ? sells.slice(0, 20).map((s) => <SignalRow key={s.key} s={s} />) : <Empty>None of your cards are spiking in today's feed.</Empty>}
+      </div>
+      <div className="card">
+        <h2>Buy signals: cards you want</h2>
+        {buys.length ? buys.slice(0, 20).map((s) => <SignalRow key={s.key} s={s} />) : <Empty>Nothing on your watchlist, wishlist or decks is dipping in today's feed.</Empty>}
+      </div>
+    </div>
+  );
+}
+
+function SignalRow({ s }: { s: PriceSignal }) {
+  const e = s.entry;
+  return (
+    <div className="row gap" style={{ alignItems: "flex-start", marginBottom: "0.5rem" }}>
+      {e.image && <img src={e.image} alt="" width={36} style={{ borderRadius: 4 }} loading="lazy" />}
+      <div className="small" style={{ flex: 1, minWidth: 0 }}>
+        <Link to={`/card/${e.id}`}><b>{e.name}</b></Link> <span className="muted">{e.set.toUpperCase()}{e.finish === "foil" ? " foil" : ""}</span>
+        <div>
+          <b>{usd(e.price)}</b> <span className={s.kind === "sell" ? "up" : "down"}>{feedChange(e)}</span>
+          {s.kind === "sell" ? <> · you own {s.owned}{s.samePrint ? "" : " (another printing)"}</> : <> · on your {s.where}{s.samePrint ? "" : " (another printing)"}</>}
+        </div>
+      </div>
+      {e.tcgplayer && <a className="btn small" href={e.tcgplayer} target="_blank" rel="noreferrer">TCGplayer ↗</a>}
+    </div>
+  );
+}
+
+function FeedTable({ rows, watched, onWatch }: { rows: FeedEntry[]; watched: Set<string>; onWatch: (id: string, name: string, finish: Finish) => void }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead><tr><th /><th>Card</th><th className="num">Price</th><th className="num">1 day</th><th className="num">7 days</th><th className="num">30-day avg</th><th /></tr></thead>
+        <tbody>
+          {rows.slice(0, 150).map((e) => (
+            <tr key={e.id + e.finish}>
+              <td>{e.image && <img src={e.image} alt="" width={28} style={{ borderRadius: 3 }} loading="lazy" />}</td>
+              <td>
+                <Link to={`/card/${e.id}`}>{e.name}</Link> <span className="muted small">{e.set.toUpperCase()}{e.finish === "foil" ? " · foil" : ""}</span>
+                {e.signal && <> <span className={`pill ${e.signal === "sell" ? "ok" : ""}`}>{e.signal === "sell" ? "sell spike" : "buy dip"}</span></>}
+              </td>
+              <td className="num">{usd(e.price)}</td>
+              <td className="num"><Change v={e.d1} /></td>
+              <td className="num"><Change v={e.d7} /></td>
+              <td className="num">{e.avg30 != null ? usd(e.avg30) : "–"}</td>
+              <td className="row gap">
+                {e.tcgplayer && <a className="btn small" href={e.tcgplayer} target="_blank" rel="noreferrer">Buy/Sell ↗</a>}
+                {!watched.has(e.id) && <button className="btn small" onClick={() => onWatch(e.id, e.name, e.finish)}>Watch</button>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

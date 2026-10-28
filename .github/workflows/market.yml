@@ -1,0 +1,91 @@
+name: Market scan
+
+# Once a day: read Scryfall's prices for every printing, update the 30-day
+# history and publish movers.json (risers, fallers, buy and sell signals) to the
+# market-data branch, which the apps download. See docs/MARKET.md.
+
+on:
+  schedule:
+    - cron: "37 15 * * *" # daily; Scryfall rebuilds its bulk files about every 12 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Optional repository secrets for a daily push of the top signals (see the last step).
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      NTFY_SERVER: ${{ secrets.NTFY_SERVER }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ijson
+
+      - name: Load price history
+        run: |
+          if git fetch --depth=1 origin market-data 2>/dev/null; then
+            git show origin/market-data:history.json.gz > history.json.gz || rm -f history.json.gz
+          fi
+          ls -l history.json.gz 2>/dev/null || echo "No history yet: today's scan starts it."
+
+      - name: Download Scryfall prices
+        run: |
+          url=$(curl -sSf -H "User-Agent: EquipWorthy-market-scan/1.0" -H "Accept: application/json" \
+            https://api.scryfall.com/bulk-data/default-cards | jq -r .download_uri)
+          curl -sSfL --compressed -H "User-Agent: EquipWorthy-market-scan/1.0" "$url" -o default-cards.json
+          ls -lh default-cards.json
+
+      - name: Build movers.json
+        run: python3 scripts/market/build_feed.py --bulk default-cards.json --history history.json.gz --out movers.json
+
+      - name: Publish to the market-data branch
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir publish && cp movers.json history.json.gz publish/
+          cat > publish/README.md <<'MD'
+          # EquipWorthy market data
+
+          Written once a day by `.github/workflows/market.yml` on `main`; each run replaces this branch.
+          `movers.json` is read by the apps. `history.json.gz` holds the last 31 days of prices.
+          MD
+          cd publish
+          git init -q -b market-data
+          git add .
+          git -c user.name="github-actions[bot]" -c user.email="41898099+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Market scan $(date -u +%F)"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" market-data
+
+      # Optional: set a repository secret NTFY_TOPIC (and NTFY_SERVER if not ntfy.sh)
+      # to get a daily push with the top buy and sell signals.
+      - name: Push daily signals
+        if: env.NTFY_TOPIC != ''
+        run: |
+          body=$(python3 - <<'PY'
+          import json
+          f = json.load(open("movers.json"))
+          rows = f["entries"]
+          def line(r):
+              ch = r.get("d7", r.get("d1", 0))
+              return f"{r['name']} ({r['set'].upper()}{' foil' if r['finish'] == 'foil' else ''}) ${r['price']:.2f} {ch:+.0f}%"
+          sells = [r for r in rows if r.get("signal") == "sell"][:3]
+          buys = [r for r in rows if r.get("signal") == "buy"][:3]
+          out = []
+          if sells: out.append("Sell spikes: " + "; ".join(map(line, sells)))
+          if buys: out.append("Buy dips: " + "; ".join(map(line, buys)))
+          print("\n".join(out) or "No strong signals today.")
+          PY
+          )
+          curl -sS -H "Title: EquipWorthy market signals" -H "Tags: chart_with_upwards_trend" \
+            -H "Click: https://anewbyss.github.io/EQUIPWORTHY/#/market" \
+            -d "$body" "${NTFY_SERVER:-https://ntfy.sh}/${NTFY_TOPIC}"
